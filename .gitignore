@@ -120,8 +120,9 @@ Temporary Items
 .apdisk
 
 ### Python template
-# Local runtime data
-/.runtime/
+# Local runtime directory: keep the directory in git, ignore generated files inside it.
+/.runtime/*
+!/.runtime/.gitkeep
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

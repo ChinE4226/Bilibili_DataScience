@@ -123,7 +123,7 @@ def merge_up_entries(entries: list[dict[str, str]]) -> list[dict[str, str]]:
 
 
 def default_up_store() -> dict[str, Any]:
-    return {"ups": [], "details_by_uid": {}}
+    return {"ups": []}
 
 
 def load_up_store() -> dict[str, Any]:
@@ -131,14 +131,11 @@ def load_up_store() -> dict[str, Any]:
 
     raw = read_json(UPS_FILE, default_up_store())
     if isinstance(raw, list):
-        store = {"ups": normalize_up_entries(raw), "details_by_uid": {}}
+        store = {"ups": normalize_up_entries(raw)}
     elif isinstance(raw, dict):
         if SELECTED_UID is None and raw.get("selected_uid"):
             SELECTED_UID = str(raw["selected_uid"])
-        store = {
-            "ups": normalize_up_entries(raw.get("ups", [])),
-            "details_by_uid": raw.get("details_by_uid", {}) if isinstance(raw.get("details_by_uid"), dict) else {},
-        }
+        store = {"ups": normalize_up_entries(raw.get("ups", []))}
     else:
         store = default_up_store()
 
@@ -153,10 +150,7 @@ def load_up_store() -> dict[str, Any]:
 def save_up_store(store: dict[str, Any]) -> None:
     global SELECTED_UID
 
-    normalized_store = {
-        "ups": merge_up_entries(normalize_up_entries(store.get("ups", []))),
-        "details_by_uid": store.get("details_by_uid", {}) if isinstance(store.get("details_by_uid"), dict) else {},
-    }
+    normalized_store = {"ups": merge_up_entries(normalize_up_entries(store.get("ups", [])))}
     known_uids = {entry["uid"] for entry in normalized_store["ups"]}
     if SELECTED_UID not in known_uids:
         SELECTED_UID = normalized_store["ups"][0]["uid"] if normalized_store["ups"] else None
@@ -190,16 +184,6 @@ def save_selected_up(entry: dict[str, str]) -> None:
     store = load_up_store()
     store["ups"] = merge_up_entries([*store["ups"], normalized])
     SELECTED_UID = normalized["uid"]
-    save_up_store(store)
-
-
-def save_selected_up_details(details: dict[str, Any]) -> None:
-    selected = details.get("selected", {})
-    uid = str(selected.get("uid") or details.get("profile", {}).get("mid") or "")
-    if not uid:
-        return
-    store = load_up_store()
-    store.setdefault("details_by_uid", {})[uid] = details
     save_up_store(store)
 
 
@@ -1029,7 +1013,6 @@ def print_selected_up_details(details: dict[str, Any]) -> None:
     if up_stat:
         print(f"Total video views: {format_count(up_stat.get('archive', {}).get('view'))}")
         print(f"Total likes: {format_count(up_stat.get('likes'))}")
-    print(f"Details JSON: {UPS_FILE}")
 
 
 def view_selected_up_account_details() -> None:
@@ -1041,7 +1024,6 @@ def view_selected_up_account_details() -> None:
         print("No selected UP details were returned.")
         return
 
-    save_selected_up_details(details)
     print_selected_up_details(details)
 
 
