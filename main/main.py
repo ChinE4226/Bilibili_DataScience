@@ -933,6 +933,73 @@ def video_total_from_response(videos: dict[str, Any]) -> int:
     return len(videos.get("list", {}).get("vlist", []))
 
 
+def prompt_video_sort_mode() -> dict[str, Any] | None:
+    fields = [
+        ("published", "Published", None),
+        ("views", "Views", "view"),
+        ("likes", "Likes", "like"),
+        ("replies", "Replies", "reply"),
+        ("favorites", "Favorites", "favorite"),
+        ("coins", "Coins", "coin"),
+        ("shares", "Shares", "share"),
+    ]
+
+    print("Choose how to order the videos:")
+    for index, (_, label, _) in enumerate(fields, start=1):
+        print(f"{index}. {label}")
+    print("0. Return to the menu")
+
+    while True:
+        field_input = input("-> ").strip()
+        if field_input == "0" or field_input == "":
+            print("Video listing canceled.")
+            return None
+        try:
+            field_index = int(field_input) - 1
+        except ValueError:
+            print("Enter a number.")
+            continue
+        if 0 <= field_index < len(fields):
+            break
+        print("Invalid selection.")
+
+    field_key, field_label, stat_key = fields[field_index]
+    print(f"Choose order for {field_label}:")
+    if field_key == "published":
+        print("1. Latest to oldest")
+        print("2. Oldest to latest")
+    else:
+        print("1. Largest to smallest")
+        print("2. Smallest to largest")
+    print("0. Return to the menu")
+
+    while True:
+        direction_input = input("-> ").strip()
+        if direction_input == "0" or direction_input == "":
+            print("Video listing canceled.")
+            return None
+        if direction_input in {"1", "2"}:
+            descending = direction_input == "1"
+            break
+        print("Enter 1, 2, or 0.")
+
+    direction_label = (
+        "latest to oldest"
+        if field_key == "published" and descending
+        else "oldest to latest"
+        if field_key == "published"
+        else "largest to smallest"
+        if descending
+        else "smallest to largest"
+    )
+    return {
+        "field": field_key,
+        "label": f"{field_label} ({direction_label})",
+        "stat_key": stat_key,
+        "descending": descending,
+    }
+
+
 def prompt_video_count(total: int) -> int | None:
     print(f"Total videos released by this UP: {total}")
     print("Enter the number of videos to list.")
@@ -959,6 +1026,158 @@ def format_count(value: Any) -> str:
         return f"{int(value):,}"
     except (TypeError, ValueError):
         return str(value)
+
+
+def int_or_none(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def video_publish_timestamp(item: dict[str, Any]) -> int | None:
+    return int_or_none(item.get("pubdate") or item.get("created"))
+
+
+def video_sort_value(item: dict[str, Any], sort_mode: dict[str, Any]) -> int | None:
+    if sort_mode["field"] == "published":
+        return video_publish_timestamp(item)
+    stat = item.get("stat") if isinstance(item.get("stat"), dict) else {}
+    return int_or_none(stat.get(sort_mode["stat_key"]))
+
+
+def sort_video_items(items: list[dict[str, Any]], sort_mode: dict[str, Any]) -> list[dict[str, Any]]:
+    direction = -1 if sort_mode["descending"] else 1
+
+    def sort_key(item: dict[str, Any]) -> tuple[int, int]:
+        value = video_sort_value(item, sort_mode)
+        if value is None:
+            return (1, 0)
+        return (0, direction * value)
+
+    return sorted(items, key=sort_key)
+
+
+def video_order_for_summary_fetch(sort_mode: dict[str, Any]) -> user.VideoOrder:
+    if sort_mode["field"] == "views":
+        return user.VideoOrder.VIEW
+    if sort_mode["field"] == "favorites":
+        return user.VideoOrder.FAVORITE
+    return user.VideoOrder.PUBDATE
+
+
+def needs_all_summaries(sort_mode: dict[str, Any]) -> bool:
+    if sort_mode["field"] == "published":
+        return not sort_mode["descending"]
+    if sort_mode["field"] in {"views", "favorites"}:
+        return not sort_mode["descending"]
+    return True
+
+
+def needs_all_details_for_sort(sort_mode: dict[str, Any]) -> bool:
+    return sort_mode["field"] in {"likes", "replies", "coins", "shares"}
+
+
+def format_video_pubdate(item: dict[str, Any]) -> str:
+    timestamp = video_publish_timestamp(item)
+    if timestamp is None:
+        return "Unknown"
+    try:
+        return datetime.fromtimestamp(timestamp).isoformat(sep=" ")
+    except Exception:
+        return str(timestamp)
+
+
+def print_video_entry(index: int, item: dict[str, Any]) -> None:
+    title = item.get("title") or "(no title)"
+    bvid = item.get("bvid")
+    aid = item.get("aid")
+    stat = item.get("stat") if isinstance(item.get("stat"), dict) else {}
+
+    print(f"{index}. {title}")
+    print(f"   BVID: {bvid}  AID: {aid}  Published: {format_video_pubdate(item)}")
+    print(
+        f"   Views: {format_count(stat.get('view'))}  Likes: {format_count(stat.get('like'))}  "
+        f"Replies: {format_count(stat.get('reply'))}  Favorites: {format_count(stat.get('favorite'))}  "
+        f"Coins: {format_count(stat.get('coin'))}  Shares: {format_count(stat.get('share'))}"
+    )
+    if item.get("detail_error"):
+        print(f"   (Failed to fetch video details: {item['detail_error']})")
+
+
+async def fetch_video_summaries(
+    uploader: Any,
+    target_count: int,
+    order: user.VideoOrder,
+) -> list[dict[str, Any]]:
+    page_size = 30
+    fetched_items: list[dict[str, Any]] = []
+    page_number = 1
+
+    while len(fetched_items) < target_count:
+        try:
+            page_data = await uploader.get_videos(pn=page_number, ps=page_size, order=order)
+        except Exception as exc:
+            print(f"Failed to fetch video page {page_number}: {exc}")
+            break
+
+        page_items = page_data.get("list", {}).get("vlist", [])
+        if not page_items:
+            break
+
+        fetched_items.extend(page_items[: target_count - len(fetched_items)])
+        page_number += 1
+        await asyncio.sleep(request_delay_seconds())
+
+    return fetched_items
+
+
+async def fetch_video_detail(item: dict[str, Any], credential: Credential | None) -> dict[str, Any]:
+    enriched = dict(item)
+    bvid = enriched.get("bvid")
+    if not bvid:
+        enriched["stat"] = {}
+        enriched["detail_error"] = "No BVID available."
+        return enriched
+
+    try:
+        info = await video.Video(bvid=bvid, credential=credential).get_info()
+    except Exception as exc:
+        enriched["stat"] = {}
+        enriched["detail_error"] = str(exc)
+        return enriched
+
+    stat = info.get("stat") if isinstance(info.get("stat"), dict) else {}
+    enriched.update(
+        {
+            "title": info.get("title") or enriched.get("title"),
+            "bvid": info.get("bvid") or enriched.get("bvid"),
+            "aid": info.get("aid") or enriched.get("aid"),
+            "pubdate": info.get("pubdate") or enriched.get("pubdate") or enriched.get("created"),
+            "stat": stat,
+        }
+    )
+    return enriched
+
+
+async def enrich_video_items(
+    items: list[dict[str, Any]],
+    credential: Credential | None,
+    *,
+    progress_label: str,
+) -> list[dict[str, Any]]:
+    enriched_items: list[dict[str, Any]] = []
+    total = len(items)
+    if total:
+        print(progress_label)
+
+    for index, item in enumerate(items, start=1):
+        if index == 1 or index == total or index % 10 == 0:
+            print(f"Fetching video details: {index}/{total}")
+        enriched_items.append(await fetch_video_detail(item, credential))
+        await asyncio.sleep(request_delay_seconds())
+
+    return enriched_items
 
 
 async def fetch_selected_up_details() -> tuple[dict[str, Any] | None, str | None]:
@@ -1049,62 +1268,67 @@ def get_video_list() -> None:
             print("No videos found for this UP.")
             return
 
+        sort_mode = prompt_video_sort_mode()
+        if sort_mode is None:
+            return
+
         requested_count = prompt_video_count(total)
         if requested_count is None:
             return
 
-        page_size = 30
-        fetched_items: list[dict[str, Any]] = []
-        page_number = 1
+        fetch_count = total if needs_all_summaries(sort_mode) else requested_count
+        if fetch_count > requested_count:
+            print(
+                f"This ordering needs scanning {fetch_count} video record(s) "
+                f"before listing {requested_count}."
+            )
+        if needs_all_details_for_sort(sort_mode):
+            print(
+                f"Sorting by {sort_mode['label']} needs detailed stats for "
+                f"{fetch_count} video(s)."
+            )
 
-        while len(fetched_items) < requested_count:
-            try:
-                page_data = await uploader.get_videos(pn=page_number, ps=page_size, order=user.VideoOrder.PUBDATE)
-            except Exception as exc:
-                print(f"Failed to fetch video page {page_number}: {exc}")
-                break
-
-            page_items = page_data.get("list", {}).get("vlist", [])
-            if not page_items:
-                break
-
-            fetched_items.extend(page_items[: requested_count - len(fetched_items)])
-            page_number += 1
-            await asyncio.sleep(request_delay_seconds())
+        fetched_items = await fetch_video_summaries(
+            uploader,
+            fetch_count,
+            video_order_for_summary_fetch(sort_mode),
+        )
 
         if not fetched_items:
             print("No videos were returned for this UP.")
             return
-        if len(fetched_items) < requested_count:
-            print(f"Only {len(fetched_items)} video(s) were returned by Bilibili.")
+        if len(fetched_items) < fetch_count:
+            print(f"Only {len(fetched_items)} video record(s) were returned by Bilibili.")
 
-        for index, item in enumerate(fetched_items, start=1):
-            title = item.get("title") or "(no title)"
-            bvid = item.get("bvid")
-            aid = item.get("aid")
-            pub_ts = item.get("created") or item.get("pubdate")
-            try:
-                pubdate = datetime.fromtimestamp(int(pub_ts)).isoformat(sep=" ") if pub_ts else "Unknown"
-            except Exception:
-                pubdate = str(pub_ts)
-
-            print(f"{index}. {title}")
-            print(f"   BVID: {bvid}  AID: {aid}  Published: {pubdate}")
-
-            if bvid:
-                try:
-                    info = await video.Video(bvid=bvid, credential=credential).get_info()
-                    stat = info.get("stat", {})
-                    print(
-                        f"   Views: {stat.get('view')}  Likes: {stat.get('like')}  Replies: {stat.get('reply')}  "
-                        f"Favorites: {stat.get('favorite')}  Coins: {stat.get('coin')}  Shares: {stat.get('share')}"
-                    )
-                except Exception as exc:
-                    print(f"   (Failed to fetch video details: {exc})")
+        if needs_all_details_for_sort(sort_mode):
+            detailed_items = await enrich_video_items(
+                fetched_items,
+                credential,
+                progress_label="Fetching details before sorting.",
+            )
+            ordered_items = sort_video_items(detailed_items, sort_mode)[:requested_count]
+        else:
+            if sort_mode["field"] == "published":
+                candidates = sort_video_items(fetched_items, sort_mode)[:requested_count]
+            elif sort_mode["field"] in {"views", "favorites"} and not sort_mode["descending"]:
+                candidates = list(reversed(fetched_items))[:requested_count]
             else:
-                print("   (No BVID available, skipping details)")
+                candidates = fetched_items[:requested_count]
 
-            await asyncio.sleep(request_delay_seconds())
+            detailed_items = await enrich_video_items(
+                candidates,
+                credential,
+                progress_label="Fetching details for selected videos.",
+            )
+            ordered_items = sort_video_items(detailed_items, sort_mode)
+
+        if not ordered_items:
+            print("No videos were available after sorting.")
+            return
+
+        print(f"Ordering: {sort_mode['label']}")
+        for index, item in enumerate(ordered_items, start=1):
+            print_video_entry(index, item)
 
     async def fetch_and_close() -> None:
         configure_bilibili_client()
@@ -1114,6 +1338,12 @@ def get_video_list() -> None:
             await close_bilibili_client()
 
     asyncio.run(fetch_and_close())
+
+
+#def analyse_data() -> None:
+
+
+# def plot_data() -> None:
 
 
 def print_main_menu() -> None:
@@ -1129,6 +1359,8 @@ def print_main_menu() -> None:
     print("5. Select an UP")
     print("6. View the selected UP's account details")
     print("7. Get the video list")
+    print("8. Analyse the data")
+    print("9. Plot the data")
     print("0. Exit")
 
 
@@ -1153,6 +1385,10 @@ def run_menu() -> None:
             view_selected_up_account_details()
         elif choice == "7":
             get_video_list()
+        elif choice == "8":
+            analyse_data()
+        elif choice == "9":
+            plot_data()
         elif choice == "0":
             break
         else:

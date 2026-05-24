@@ -74,13 +74,11 @@ Rules:
 
 3. view account details of the selected UP
 
-4. get the vedio list of the selected UP
+4. get the video list of the selected UP, ordered by publish time, views, likes, replies, favorites, coins, or shares
 
-5. calculate the mean average and medium of the details of the UP's vedios, selected by uploading time or uploading number
+5. analyse the data of the UP's vedios, selected by the specific data
 
-6. draw graphs of the details of the UP's vedios about the time line, selected by uploading time or uploading number
-
-7. 
+6. plot the data of the UP's vedios, selected by the specific data
 
 ## the APIs source
 
