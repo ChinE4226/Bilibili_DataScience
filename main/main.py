@@ -29,6 +29,7 @@ ACTIVE_ACCOUNT_FILE = RUNTIME_DIR / "active_account.json"
 DEFAULT_REQUEST_FREQUENCY = 4.0
 REQUEST_FREQUENCY = DEFAULT_REQUEST_FREQUENCY
 USE_GUEST_MODE = False
+SELECTED_UID: str | None = None
 
 
 def read_json(path: Path, default: Any = None) -> Any:
@@ -58,10 +59,18 @@ def uid_from_up(entry: dict[str, Any]) -> int:
 
 def load_uid(object_file: Path) -> int:
     data = read_json(object_file, {})
-    if isinstance(data, dict) and data.get("selected_uid"):
-        for entry in data.get("ups", []):
-            if str(entry.get("uid")) == str(data["selected_uid"]):
-                return uid_from_up(entry)
+    if isinstance(data, dict) and isinstance(data.get("ups"), list):
+        if object_file.resolve() == UPS_FILE.resolve():
+            selected_up = load_selected_up()
+            if selected_up is not None:
+                return uid_from_up(selected_up)
+        ups = normalize_up_entries(data.get("ups", []))
+        if ups:
+            return uid_from_up(ups[0])
+    if isinstance(data, list):
+        ups = normalize_up_entries(data)
+        if ups:
+            return uid_from_up(ups[0])
     return uid_from_up(data)
 
 
@@ -114,16 +123,19 @@ def merge_up_entries(entries: list[dict[str, str]]) -> list[dict[str, str]]:
 
 
 def default_up_store() -> dict[str, Any]:
-    return {"selected_uid": None, "ups": [], "details_by_uid": {}}
+    return {"ups": [], "details_by_uid": {}}
 
 
 def load_up_store() -> dict[str, Any]:
+    global SELECTED_UID
+
     raw = read_json(UPS_FILE, default_up_store())
     if isinstance(raw, list):
-        store = {"selected_uid": None, "ups": normalize_up_entries(raw), "details_by_uid": {}}
+        store = {"ups": normalize_up_entries(raw), "details_by_uid": {}}
     elif isinstance(raw, dict):
+        if SELECTED_UID is None and raw.get("selected_uid"):
+            SELECTED_UID = str(raw["selected_uid"])
         store = {
-            "selected_uid": str(raw["selected_uid"]) if raw.get("selected_uid") else None,
             "ups": normalize_up_entries(raw.get("ups", [])),
             "details_by_uid": raw.get("details_by_uid", {}) if isinstance(raw.get("details_by_uid"), dict) else {},
         }
@@ -132,18 +144,22 @@ def load_up_store() -> dict[str, Any]:
 
     store["ups"] = merge_up_entries(store["ups"])
     known_uids = {entry["uid"] for entry in store["ups"]}
-    if store["selected_uid"] not in known_uids:
-        store["selected_uid"] = store["ups"][0]["uid"] if store["ups"] else None
+    if SELECTED_UID not in known_uids:
+        SELECTED_UID = store["ups"][0]["uid"] if store["ups"] else None
     write_json(UPS_FILE, store)
     return store
 
 
 def save_up_store(store: dict[str, Any]) -> None:
+    global SELECTED_UID
+
     normalized_store = {
-        "selected_uid": str(store["selected_uid"]) if store.get("selected_uid") else None,
         "ups": merge_up_entries(normalize_up_entries(store.get("ups", []))),
         "details_by_uid": store.get("details_by_uid", {}) if isinstance(store.get("details_by_uid"), dict) else {},
     }
+    known_uids = {entry["uid"] for entry in normalized_store["ups"]}
+    if SELECTED_UID not in known_uids:
+        SELECTED_UID = normalized_store["ups"][0]["uid"] if normalized_store["ups"] else None
     write_json(UPS_FILE, normalized_store)
 
 
@@ -159,20 +175,21 @@ def save_ups(entries: list[dict[str, str]]) -> None:
 
 def load_selected_up() -> dict[str, str] | None:
     store = load_up_store()
-    selected_uid = str(store["selected_uid"]) if store.get("selected_uid") else None
     for entry in store["ups"]:
-        if entry["uid"] == selected_uid:
+        if entry["uid"] == SELECTED_UID:
             return entry
     return None
 
 
 def save_selected_up(entry: dict[str, str]) -> None:
+    global SELECTED_UID
+
     normalized = normalize_up(entry)
     if normalized is None:
         raise ValueError("Cannot save an invalid UP entry.")
     store = load_up_store()
     store["ups"] = merge_up_entries([*store["ups"], normalized])
-    store["selected_uid"] = normalized["uid"]
+    SELECTED_UID = normalized["uid"]
     save_up_store(store)
 
 
