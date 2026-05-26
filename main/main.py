@@ -4,11 +4,12 @@ import hashlib
 import json
 import os
 import re
+import statistics
+import qrcode
+
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-
-import qrcode
 from bilibili_api import Credential, get_client, request_settings, user, video
 from bilibili_api.exceptions import NetworkException
 from bilibili_api.login_v2 import QrCodeLogin, QrCodeLoginEvents
@@ -30,6 +31,15 @@ DEFAULT_REQUEST_FREQUENCY = 4.0
 REQUEST_FREQUENCY = DEFAULT_REQUEST_FREQUENCY
 USE_GUEST_MODE = False
 SELECTED_UID: str | None = None
+
+VIDEO_STAT_FIELDS = [
+    ("views", "Views", "view"),
+    ("likes", "Likes", "like"),
+    ("replies", "Replies", "reply"),
+    ("favorites", "Favorites", "favorite"),
+    ("coins", "Coins", "coin"),
+    ("shares", "Shares", "share"),
+]
 
 
 def read_json(path: Path, default: Any = None) -> Any:
@@ -933,61 +943,12 @@ def video_total_from_response(videos: dict[str, Any]) -> int:
     return len(videos.get("list", {}).get("vlist", []))
 
 
-def prompt_video_sort_mode() -> dict[str, Any] | None:
-    fields = [
-        ("published", "Published", None),
-        ("views", "Views", "view"),
-        ("likes", "Likes", "like"),
-        ("replies", "Replies", "reply"),
-        ("favorites", "Favorites", "favorite"),
-        ("coins", "Coins", "coin"),
-        ("shares", "Shares", "share"),
-    ]
-
-    print("Choose how to order the videos:")
-    for index, (_, label, _) in enumerate(fields, start=1):
-        print(f"{index}. {label}")
-    print("0. Return to the menu")
-
-    while True:
-        field_input = input("-> ").strip()
-        if field_input == "0" or field_input == "":
-            print("Video listing canceled.")
-            return None
-        try:
-            field_index = int(field_input) - 1
-        except ValueError:
-            print("Enter a number.")
-            continue
-        if 0 <= field_index < len(fields):
-            break
-        print("Invalid selection.")
-
-    field_key, field_label, stat_key = fields[field_index]
-    print(f"Choose order for {field_label}:")
-    if field_key == "published":
-        print("1. Latest to oldest")
-        print("2. Oldest to latest")
-    else:
-        print("1. Largest to smallest")
-        print("2. Smallest to largest")
-    print("0. Return to the menu")
-
-    while True:
-        direction_input = input("-> ").strip()
-        if direction_input == "0" or direction_input == "":
-            print("Video listing canceled.")
-            return None
-        if direction_input in {"1", "2"}:
-            descending = direction_input == "1"
-            break
-        print("Enter 1, 2, or 0.")
-
+def video_sort_mode(field_key: str, field_label: str, stat_key: str | None, descending: bool) -> dict[str, Any]:
     direction_label = (
         "latest to oldest"
-        if field_key == "published" and descending
+        if field_key == "published_time" and descending
         else "oldest to latest"
-        if field_key == "published"
+        if field_key == "published_time"
         else "largest to smallest"
         if descending
         else "smallest to largest"
@@ -1000,23 +961,193 @@ def prompt_video_sort_mode() -> dict[str, Any] | None:
     }
 
 
-def prompt_video_count(total: int) -> int | None:
-    print(f"Total videos released by this UP: {total}")
-    print("Enter the number of videos to list.")
+def video_selection_choices() -> list[dict[str, Any]]:
+    choices: list[dict[str, Any]] = [
+        {
+            "kind": "published_time_range",
+            "label": "Published time (latest to oldest)",
+            "sort_mode": video_sort_mode("published_time", "Published time", None, True),
+        },
+        {
+            "kind": "published_time_range",
+            "label": "Published time (oldest to latest)",
+            "sort_mode": video_sort_mode("published_time", "Published time", None, False),
+        },
+    ]
+
+    for field_key, field_label, stat_key in VIDEO_STAT_FIELDS:
+        choices.append(
+            {
+                "kind": "metric_range",
+                "field": field_key,
+                "label": f"{field_label} (smallest to largest)",
+                "range_label": field_label,
+                "stat_key": stat_key,
+                "sort_mode": video_sort_mode(field_key, field_label, stat_key, False),
+            }
+        )
+
+    choices.append(
+        {
+            "kind": "published_time_position_range",
+            "label": "Published-time ordered number range (latest to oldest)",
+        }
+    )
+    return choices
+
+
+def prompt_video_selection_choice(*, action_name: str) -> dict[str, Any] | None:
+    choices = video_selection_choices()
+
+    print("Choose how to list videos:")
+    for index, choice in enumerate(choices, start=1):
+        print(f"{index}. {choice['label']}")
     print("0. Return to the menu")
+
     while True:
-        count_input = input(f"1-{total}: ").strip()
-        if count_input == "0" or count_input == "":
-            print("Video listing canceled.")
+        raw_choice = input("-> ").strip()
+        if raw_choice == "0" or raw_choice == "":
+            print(f"{action_name} canceled.")
             return None
         try:
-            count = int(count_input)
+            choice_index = int(raw_choice) - 1
         except ValueError:
             print("Enter a number.")
             continue
-        if 1 <= count <= total:
-            return count
-        print(f"Enter a number from 1 to {total}.")
+        if 0 <= choice_index < len(choices):
+            return choices[choice_index]
+        print("Invalid selection.")
+
+
+def prompt_published_time_position_range(total: int, *, action_name: str) -> tuple[int, int] | None:
+    print(f"Enter the published-time ordered video number range. Available range: 1-{total}")
+    print("Numbers are ordered by published time, latest to oldest.")
+    print("0. Return to the menu")
+
+    while True:
+        start_input = input("Start number: ").strip()
+        if start_input == "0" or start_input == "":
+            print(f"{action_name} canceled.")
+            return None
+        end_input = input("End number: ").strip()
+        if end_input == "0" or end_input == "":
+            print(f"{action_name} canceled.")
+            return None
+
+        try:
+            start = int(start_input)
+            end = int(end_input)
+        except ValueError:
+            print("Enter numbers only.")
+            continue
+
+        if not 1 <= start <= total or not 1 <= end <= total:
+            print(f"Both numbers must be from 1 to {total}.")
+            continue
+        if start > end:
+            print("Start number must be smaller than or equal to end number.")
+            continue
+        return start, end
+
+
+def parse_datetime_input(raw: str, *, end_of_day: bool = False) -> datetime | None:
+    value = raw.strip()
+    if not value:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) and end_of_day:
+        return parsed.replace(hour=23, minute=59, second=59)
+    return parsed
+
+
+def prompt_published_time_range(*, action_name: str) -> tuple[int, int, str] | None:
+    print("Enter published time range.")
+    print("Format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS")
+    print("0. Return to the menu")
+
+    while True:
+        start_input = input("Start time: ").strip()
+        if start_input == "0" or start_input == "":
+            print(f"{action_name} canceled.")
+            return None
+        end_input = input("End time: ").strip()
+        if end_input == "0" or end_input == "":
+            print(f"{action_name} canceled.")
+            return None
+
+        start_dt = parse_datetime_input(start_input)
+        end_dt = parse_datetime_input(end_input, end_of_day=True)
+        if start_dt is None or end_dt is None:
+            print("Enter time as YYYY-MM-DD or YYYY-MM-DD HH:MM:SS.")
+            continue
+        if start_dt > end_dt:
+            print("Start time must be earlier than or equal to end time.")
+            continue
+
+        label = f"{start_dt.isoformat(sep=' ')} to {end_dt.isoformat(sep=' ')}"
+        return int(start_dt.timestamp()), int(end_dt.timestamp()), label
+
+
+def parse_int_range_value(raw: str) -> int | None:
+    value = raw.strip().lower().replace(",", "").replace(" ", "")
+    if not value:
+        return None
+    multiplier = 1
+    if value.endswith("k"):
+        multiplier = 1_000
+        value = value[:-1]
+    elif value.endswith("m"):
+        multiplier = 1_000_000
+        value = value[:-1]
+
+    try:
+        number = float(value)
+    except ValueError:
+        return None
+    if number < 0:
+        return None
+    return int(number * multiplier)
+
+
+def prompt_metric_value_range(label: str, *, action_name: str) -> tuple[int | None, int | None, str] | None:
+    print(f"Enter {label} range.")
+    print("Use blank for no limit. Examples: 100k, 100,000, 2.5m.")
+    print("0. Return to the menu")
+
+    while True:
+        start_input = input("Greater than: ").strip()
+        if start_input == "0":
+            print(f"{action_name} canceled.")
+            return None
+        end_input = input("Less than: ").strip()
+        if end_input == "0":
+            print(f"{action_name} canceled.")
+            return None
+
+        start = parse_int_range_value(start_input) if start_input else None
+        end = parse_int_range_value(end_input) if end_input else None
+        if (start_input and start is None) or (end_input and end is None):
+            print("Enter non-negative numbers, optionally using k or m.")
+            continue
+        if start is None and end is None:
+            print("Enter at least one boundary.")
+            continue
+        if start is not None and end is not None and start >= end:
+            print("The lower boundary must be smaller than the upper boundary.")
+            continue
+
+        if start is not None and end is not None:
+            label_text = f"greater than {format_count(start)} and less than {format_count(end)}"
+        elif start is not None:
+            label_text = f"greater than {format_count(start)}"
+        else:
+            label_text = f"less than {format_count(end)}"
+        return start, end, label_text
 
 
 def format_count(value: Any) -> str:
@@ -1035,13 +1166,13 @@ def int_or_none(value: Any) -> int | None:
         return None
 
 
-def video_publish_timestamp(item: dict[str, Any]) -> int | None:
+def video_published_timestamp(item: dict[str, Any]) -> int | None:
     return int_or_none(item.get("pubdate") or item.get("created"))
 
 
 def video_sort_value(item: dict[str, Any], sort_mode: dict[str, Any]) -> int | None:
-    if sort_mode["field"] == "published":
-        return video_publish_timestamp(item)
+    if sort_mode["field"] == "published_time":
+        return video_published_timestamp(item)
     stat = item.get("stat") if isinstance(item.get("stat"), dict) else {}
     return int_or_none(stat.get(sort_mode["stat_key"]))
 
@@ -1058,28 +1189,8 @@ def sort_video_items(items: list[dict[str, Any]], sort_mode: dict[str, Any]) -> 
     return sorted(items, key=sort_key)
 
 
-def video_order_for_summary_fetch(sort_mode: dict[str, Any]) -> user.VideoOrder:
-    if sort_mode["field"] == "views":
-        return user.VideoOrder.VIEW
-    if sort_mode["field"] == "favorites":
-        return user.VideoOrder.FAVORITE
-    return user.VideoOrder.PUBDATE
-
-
-def needs_all_summaries(sort_mode: dict[str, Any]) -> bool:
-    if sort_mode["field"] == "published":
-        return not sort_mode["descending"]
-    if sort_mode["field"] in {"views", "favorites"}:
-        return not sort_mode["descending"]
-    return True
-
-
-def needs_all_details_for_sort(sort_mode: dict[str, Any]) -> bool:
-    return sort_mode["field"] in {"likes", "replies", "coins", "shares"}
-
-
-def format_video_pubdate(item: dict[str, Any]) -> str:
-    timestamp = video_publish_timestamp(item)
+def format_video_published_time(item: dict[str, Any]) -> str:
+    timestamp = video_published_timestamp(item)
     if timestamp is None:
         return "Unknown"
     try:
@@ -1095,7 +1206,7 @@ def print_video_entry(index: int, item: dict[str, Any]) -> None:
     stat = item.get("stat") if isinstance(item.get("stat"), dict) else {}
 
     print(f"{index}. {title}")
-    print(f"   BVID: {bvid}  AID: {aid}  Published: {format_video_pubdate(item)}")
+    print(f"   BVID: {bvid}  AID: {aid}  Published time: {format_video_published_time(item)}")
     print(
         f"   Views: {format_count(stat.get('view'))}  Likes: {format_count(stat.get('like'))}  "
         f"Replies: {format_count(stat.get('reply'))}  Favorites: {format_count(stat.get('favorite'))}  "
@@ -1103,6 +1214,62 @@ def print_video_entry(index: int, item: dict[str, Any]) -> None:
     )
     if item.get("detail_error"):
         print(f"   (Failed to fetch video details: {item['detail_error']})")
+
+
+def video_metric_value(item: dict[str, Any], stat_key: str) -> int | None:
+    stat = item.get("stat") if isinstance(item.get("stat"), dict) else {}
+    return int_or_none(stat.get(stat_key))
+
+
+def format_analysis_number(value: float | int | None) -> str:
+    if value is None:
+        return "Unknown"
+    if isinstance(value, float) and not value.is_integer():
+        return f"{value:,.2f}"
+    return f"{int(value):,}"
+
+
+def calculate_metric_summary(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summaries = []
+    for _, label, stat_key in VIDEO_STAT_FIELDS:
+        values = [
+            value
+            for item in items
+            if stat_key is not None
+            if (value := video_metric_value(item, stat_key)) is not None
+        ]
+        summaries.append(
+            {
+                "label": label,
+                "count": len(values),
+                "mean": statistics.mean(values) if values else None,
+                "median": statistics.median(values) if values else None,
+            }
+        )
+    return summaries
+
+
+def print_analysis_result(
+    *,
+    selected_up: dict[str, str],
+    selection_label: str,
+    items: list[dict[str, Any]],
+) -> None:
+    print("Analysis result")
+    print(f"UP: {selected_up['name']} (UID {selected_up['uid']})")
+    print(f"Selection: {selection_label}")
+    print(f"Selected videos: {len(items)}")
+
+    summaries = calculate_metric_summary(items)
+    print("")
+    print(f"{'Metric':<12}{'Data count':>12}{'Mean average':>18}{'Median':>18}")
+    for summary in summaries:
+        print(
+            f"{summary['label']:<12}"
+            f"{summary['count']:>12}"
+            f"{format_analysis_number(summary['mean']):>18}"
+            f"{format_analysis_number(summary['median']):>18}"
+        )
 
 
 async def fetch_video_summaries(
@@ -1178,6 +1345,66 @@ async def enrich_video_items(
         await asyncio.sleep(request_delay_seconds())
 
     return enriched_items
+
+
+async def fetch_items_for_selection(
+    uploader: Any,
+    credential: Credential | None,
+    total: int,
+    selection: dict[str, Any],
+    *,
+    action_name: str,
+) -> tuple[list[dict[str, Any]], str] | None:
+    if selection["kind"] == "published_time_position_range":
+        position_range = prompt_published_time_position_range(total, action_name=action_name)
+        if position_range is None:
+            return None
+        start_number, end_number = position_range
+        summaries = await fetch_video_summaries(uploader, end_number, user.VideoOrder.PUBDATE)
+        selected_summaries = summaries[start_number - 1 : end_number]
+        detailed_items = await enrich_video_items(
+            selected_summaries,
+            credential,
+            progress_label="Fetching details for selected videos.",
+        )
+        return detailed_items, f"published-time ordered videos {start_number}-{end_number} (latest to oldest)"
+
+    if selection["kind"] == "published_time_range":
+        time_range = prompt_published_time_range(action_name=action_name)
+        if time_range is None:
+            return None
+        start_timestamp, end_timestamp, range_label = time_range
+        print(f"This selection needs scanning {total} video record(s) to apply the published time range.")
+        summaries = await fetch_video_summaries(uploader, total, user.VideoOrder.PUBDATE)
+        selected_summaries = filter_items_by_published_time_range(summaries, start_timestamp, end_timestamp)
+        ordered_summaries = sort_video_items(selected_summaries, selection["sort_mode"])
+        detailed_items = await enrich_video_items(
+            ordered_summaries,
+            credential,
+            progress_label="Fetching details for selected videos.",
+        )
+        ordered_items = sort_video_items(detailed_items, selection["sort_mode"])
+        return ordered_items, f"{selection['label']} from {range_label}"
+
+    metric_range = prompt_metric_value_range(selection["range_label"], action_name=action_name)
+    if metric_range is None:
+        return None
+    minimum_value, maximum_value, range_label = metric_range
+    print(f"This selection needs scanning {total} video record(s) and fetching their details.")
+    summaries = await fetch_video_summaries(uploader, total, user.VideoOrder.PUBDATE)
+    detailed_items = await enrich_video_items(
+        summaries,
+        credential,
+        progress_label="Fetching details before applying the metric range.",
+    )
+    selected_items = filter_items_by_metric_range(
+        detailed_items,
+        selection["stat_key"],
+        minimum_value,
+        maximum_value,
+    )
+    ordered_items = sort_video_items(selected_items, selection["sort_mode"])
+    return ordered_items, f"{selection['range_label']} {range_label}"
 
 
 async def fetch_selected_up_details() -> tuple[dict[str, Any] | None, str | None]:
@@ -1268,66 +1495,27 @@ def get_video_list() -> None:
             print("No videos found for this UP.")
             return
 
-        sort_mode = prompt_video_sort_mode()
-        if sort_mode is None:
+        selection = prompt_video_selection_choice(action_name="Video listing")
+        if selection is None:
             return
 
-        requested_count = prompt_video_count(total)
-        if requested_count is None:
-            return
-
-        fetch_count = total if needs_all_summaries(sort_mode) else requested_count
-        if fetch_count > requested_count:
-            print(
-                f"This ordering needs scanning {fetch_count} video record(s) "
-                f"before listing {requested_count}."
-            )
-        if needs_all_details_for_sort(sort_mode):
-            print(
-                f"Sorting by {sort_mode['label']} needs detailed stats for "
-                f"{fetch_count} video(s)."
-            )
-
-        fetched_items = await fetch_video_summaries(
+        selected = await fetch_items_for_selection(
             uploader,
-            fetch_count,
-            video_order_for_summary_fetch(sort_mode),
+            credential,
+            total,
+            selection,
+            action_name="Video listing",
         )
-
-        if not fetched_items:
-            print("No videos were returned for this UP.")
+        if selected is None:
             return
-        if len(fetched_items) < fetch_count:
-            print(f"Only {len(fetched_items)} video record(s) were returned by Bilibili.")
+        selected_items, selection_label = selected
 
-        if needs_all_details_for_sort(sort_mode):
-            detailed_items = await enrich_video_items(
-                fetched_items,
-                credential,
-                progress_label="Fetching details before sorting.",
-            )
-            ordered_items = sort_video_items(detailed_items, sort_mode)[:requested_count]
-        else:
-            if sort_mode["field"] == "published":
-                candidates = sort_video_items(fetched_items, sort_mode)[:requested_count]
-            elif sort_mode["field"] in {"views", "favorites"} and not sort_mode["descending"]:
-                candidates = list(reversed(fetched_items))[:requested_count]
-            else:
-                candidates = fetched_items[:requested_count]
-
-            detailed_items = await enrich_video_items(
-                candidates,
-                credential,
-                progress_label="Fetching details for selected videos.",
-            )
-            ordered_items = sort_video_items(detailed_items, sort_mode)
-
-        if not ordered_items:
-            print("No videos were available after sorting.")
+        if not selected_items:
+            print("No videos matched the selected range.")
             return
 
-        print(f"Ordering: {sort_mode['label']}")
-        for index, item in enumerate(ordered_items, start=1):
+        print(f"Selection: {selection_label}")
+        for index, item in enumerate(selected_items, start=1):
             print_video_entry(index, item)
 
     async def fetch_and_close() -> None:
@@ -1340,10 +1528,93 @@ def get_video_list() -> None:
     asyncio.run(fetch_and_close())
 
 
-#def analyse_data() -> None:
+def filter_items_by_published_time_range(
+    items: list[dict[str, Any]],
+    start_timestamp: int,
+    end_timestamp: int,
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in items
+        if (published_time := video_published_timestamp(item)) is not None
+        if start_timestamp <= published_time <= end_timestamp
+    ]
 
 
-# def plot_data() -> None:
+def filter_items_by_metric_range(
+    items: list[dict[str, Any]],
+    stat_key: str,
+    minimum_value: int | None,
+    maximum_value: int | None,
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in items
+        if (metric_value := video_metric_value(item, stat_key)) is not None
+        if minimum_value is None or metric_value > minimum_value
+        if maximum_value is None or metric_value < maximum_value
+    ]
+
+
+def analyse_data() -> None:
+    selected_up = load_selected_up()
+    if selected_up is None:
+        print("No UP is selected. Select an UP first.")
+        return
+
+    uid = uid_from_up(selected_up)
+    credential = credential_for_requests()
+
+    async def fetch_and_analyse() -> None:
+        uploader = user.User(uid, credential=credential)
+        try:
+            first_page = await uploader.get_videos(pn=1, ps=1, order=user.VideoOrder.PUBDATE)
+        except Exception as exc:
+            print(f"Failed to fetch video list: {exc}")
+            return
+
+        total = video_total_from_response(first_page)
+        if total <= 0:
+            print("No videos found for this UP.")
+            return
+
+        selection = prompt_video_selection_choice(action_name="Analysis")
+        if selection is None:
+            return
+
+        selected = await fetch_items_for_selection(
+            uploader,
+            credential,
+            total,
+            selection,
+            action_name="Analysis",
+        )
+        if selected is None:
+            return
+        selected_items, selection_label = selected
+
+        if not selected_items:
+            print("No videos matched the selected range.")
+            return
+
+        print_analysis_result(
+            selected_up=selected_up,
+            selection_label=selection_label,
+            items=selected_items,
+        )
+
+    async def fetch_and_close() -> None:
+        configure_bilibili_client()
+        try:
+            await fetch_and_analyse()
+        finally:
+            await close_bilibili_client()
+
+    asyncio.run(fetch_and_close())
+
+
+def plot_data() -> None:
+    print("Plot data is not implemented yet.")
 
 
 def print_main_menu() -> None:

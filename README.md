@@ -39,7 +39,7 @@ Bilibili_DataScience/
 - `start-macos.command`: macOS launcher. Double-click it to start `main/main.py`.
 - `main/main.py`: main terminal programme, menu flow, sign-in, UP selection, and Bilibili API requests.
 - `objects/ups.json`: permanent UP list. This file should store only UP identity data.
-- `.runtime/`: local runtime cache for sign-in accounts, active account selection, and QR code images. This directory is ignored by git.
+- `.runtime/`: local runtime cache for sign-in accounts, active account selection, and QR code images. The directory placeholder is tracked by git; generated files inside it are ignored.
 
 ### `objects/ups.json` Structure
 
@@ -50,7 +50,7 @@ Bilibili_DataScience/
   "ups": [
     {
       "name": "Geekerwan",
-      "space": "https://space.bilibili.com/25876945/upload/video",
+      "space": "https://space.bilibili.com/25876945",
       "uid": "25876945"
     }
   ]
@@ -74,11 +74,11 @@ Rules:
 
 3. view account details of the selected UP
 
-4. get the video list of the selected UP, ordered by publish time, views, likes, replies, favorites, coins, or shares
+4. get the video list of the selected UP by selecting videos with a published time range, a data value range, or a published-time ordered number range
 
-5. analyse the data of the UP's vedios, selected by the specific data
+5. analyse videos selected by the same range menu, then calculate mean average and median for views, likes, replies, favorites, coins, and shares
 
-6. plot the data of the UP's vedios, selected by the specific data
+6. plot the data of the UP's videos, selected by the specific data
 
 ## the APIs source
 

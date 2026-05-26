@@ -1,19 +1,29 @@
 {
   "ups": [
     {
-      "name": "Geekerwan",
+      "name": "极客湾Geekerwan",
       "space": "https://space.bilibili.com/25876945",
       "uid": "25876945"
     },
     {
-      "name": "Mediastorm",
+      "name": "影视飓风",
       "space": "https://space.bilibili.com/946974",
       "uid": "946974"
     },
     {
-      "name": "Speedsters",
+      "name": "极速拍档",
       "space": "https://space.bilibili.com/25150941",
       "uid": "25150941"
+    },
+    {
+      "name": "笔吧评测室",
+      "space": "https://space.bilibili.com/367877",
+      "uid": "367877"
+    },
+    {
+      "name": "杰克小兔",
+      "space": "https://space.bilibili.com/644255470",
+      "uid": "644255470"
     }
   ]
 }
