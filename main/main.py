@@ -853,7 +853,7 @@ def select_an_up() -> None:
             chosen = choose_from_list(entries)
             if chosen is not None:
                 save_selected_up(chosen)
-                print(f"Selected UP: {chosen['name']}.")
+                print(f"Selected UP: {chosen['name']}")
                 return
             continue
         if choice == "2":
@@ -871,7 +871,7 @@ def select_an_up() -> None:
             chosen = choose_from_list(results)
             if chosen is not None:
                 save_selected_up(chosen)
-                print(f"Selected UP: {chosen['name']}.")
+                print(f"Selected UP: {chosen['name']}")
                 return
             continue
         if choice == "3":
@@ -889,7 +889,7 @@ def select_an_up() -> None:
             entries = merge_up_entries(entries)
             save_ups(entries)
             save_selected_up(normalized)
-            print(f"Added and selected UP: {normalized['name']}.")
+            print(f"Added and selected UP: {normalized['name']}")
             return
         if choice == "4":
             print(f"UP list file: {UPS_FILE}")
@@ -999,7 +999,10 @@ def video_selection_choices() -> list[dict[str, Any]]:
 def prompt_video_selection_choice(*, action_name: str) -> dict[str, Any] | None:
     choices = video_selection_choices()
 
-    print("Choose how to list videos:")
+    if action_name == "Video listing":
+        print("Choose how to list videos:")
+    else:
+        print("Choose how to select videos:")
     for index, choice in enumerate(choices, start=1):
         print(f"{index}. {choice['label']}")
     print("0. Return to the menu")
@@ -1262,7 +1265,7 @@ def print_analysis_result(
 
     summaries = calculate_metric_summary(items)
     print("")
-    print(f"{'Metric':<12}{'Data count':>12}{'Mean average':>18}{'Median':>18}")
+    print(f"{'Metric':<12}{'Data count':>12}{'Mean':>18}{'Median':>18}")
     for summary in summaries:
         print(
             f"{summary['label']:<12}"
@@ -1270,6 +1273,224 @@ def print_analysis_result(
             f"{format_analysis_number(summary['mean']):>18}"
             f"{format_analysis_number(summary['median']):>18}"
         )
+
+
+def prompt_division_mode() -> str | None:
+    print("Choose division mode:")
+    print("1. Calculate the ratio for every selected video")
+    print("2. Calculate one ratio for all selected videos")
+    print("0. Return to the menu")
+
+    while True:
+        choice = input("-> ").strip()
+        if choice == "0" or choice == "":
+            print("Division canceled.")
+            return None
+        if choice == "1":
+            return "single"
+        if choice == "2":
+            return "aggregate"
+        print("Enter 1, 2, or 0.")
+
+
+def division_field_choices() -> list[dict[str, str]]:
+    choices = [
+        {
+            "field": field_key,
+            "label": label,
+            "source": "video_stat",
+            "stat_key": stat_key,
+        }
+        for field_key, label, stat_key in VIDEO_STAT_FIELDS
+    ]
+    choices.append(
+        {
+            "field": "followers",
+            "label": "Followers",
+            "source": "up_relation",
+            "relation_key": "follower",
+        }
+    )
+    return choices
+
+
+def prompt_stat_field(prompt_text: str) -> dict[str, str] | None:
+    choices = division_field_choices()
+
+    print(prompt_text)
+    for index, field in enumerate(choices, start=1):
+        print(f"{index}. {field['label']}")
+    print("0. Return to the menu")
+
+    while True:
+        choice = input("-> ").strip()
+        if choice == "0" or choice == "":
+            print("Division canceled.")
+            return None
+        try:
+            index = int(choice) - 1
+        except ValueError:
+            print("Enter a number.")
+            continue
+        if 0 <= index < len(choices):
+            return choices[index]
+        print("Invalid selection.")
+
+
+def prompt_division_fields() -> tuple[dict[str, str], dict[str, str]] | None:
+    numerator = prompt_stat_field("Choose numerator data:")
+    if numerator is None:
+        return None
+
+    denominator = prompt_stat_field("Choose denominator data:")
+    if denominator is None:
+        return None
+
+    return numerator, denominator
+
+
+def division_needs_up_relation(*fields: dict[str, str]) -> bool:
+    return any(field.get("source") == "up_relation" for field in fields)
+
+
+def division_field_value(
+    item: dict[str, Any],
+    field: dict[str, str],
+    up_relation: dict[str, Any] | None = None,
+) -> int | None:
+    if field.get("source") == "up_relation":
+        return int_or_none((up_relation or {}).get(field["relation_key"]))
+    return video_metric_value(item, field["stat_key"])
+
+
+def ratio_for_item(
+    item: dict[str, Any],
+    numerator_field: dict[str, str],
+    denominator_field: dict[str, str],
+    up_relation: dict[str, Any] | None = None,
+) -> tuple[int | None, int | None, float | None]:
+    numerator = division_field_value(item, numerator_field, up_relation)
+    denominator = division_field_value(item, denominator_field, up_relation)
+    if numerator is None or denominator in (None, 0):
+        return numerator, denominator, None
+    return numerator, denominator, numerator / denominator
+
+
+def format_ratio(value: float | None) -> str:
+    if value is None:
+        return "Undefined"
+    return f"{value:,.6f} ({value * 100:,.2f}%)"
+
+
+def print_single_video_division_result(
+    items: list[dict[str, Any]],
+    numerator_field: dict[str, str],
+    denominator_field: dict[str, str],
+    selection_label: str,
+    up_relation: dict[str, Any] | None = None,
+) -> None:
+    print("Division result for every selected video")
+    print(f"Selection: {selection_label}")
+    print(f"Ratio: {numerator_field['label']} / {denominator_field['label']}")
+    print(f"Selected videos: {len(items)}")
+
+    skipped = 0
+    for index, item in enumerate(items, start=1):
+        numerator, denominator, ratio = ratio_for_item(
+            item,
+            numerator_field,
+            denominator_field,
+            up_relation,
+        )
+        if ratio is None:
+            skipped += 1
+        title = item.get("title") or "(no title)"
+        print(f"{index}. {title}")
+        print(f"   Published time: {format_video_published_time(item)}")
+        print(
+            f"   {numerator_field['label']}: {format_count(numerator)}  "
+            f"{denominator_field['label']}: {format_count(denominator)}  "
+            f"Ratio: {format_ratio(ratio)}"
+        )
+
+    if skipped:
+        print(f"Skipped ratio calculation for {skipped} video(s) with missing data or zero denominator.")
+
+
+def aggregate_division_value(
+    items: list[dict[str, Any]],
+    field: dict[str, str],
+    up_relation: dict[str, Any] | None = None,
+) -> dict[str, int | None]:
+    if field.get("source") == "up_relation":
+        value = division_field_value({}, field, up_relation)
+        selected_count = len(items)
+        return {
+            "value": None if value is None else value * selected_count,
+            "count": selected_count if value is not None else 0,
+            "missing": 0 if value is not None else selected_count,
+            "base_value": value,
+        }
+
+    total = 0
+    count = 0
+    missing = 0
+    for item in items:
+        value = division_field_value(item, field, up_relation)
+        if value is None:
+            missing += 1
+            continue
+        total += value
+        count += 1
+
+    return {"value": total, "count": count, "missing": missing}
+
+
+def aggregate_division_label(field: dict[str, str], selected_count: int | None = None) -> str:
+    if field.get("source") == "up_relation":
+        if selected_count is None:
+            return field["label"]
+        return f"{field['label']} x {selected_count} selected video(s)"
+    return f"Total {field['label']}"
+
+
+def print_aggregate_division_result(
+    items: list[dict[str, Any]],
+    numerator_field: dict[str, str],
+    denominator_field: dict[str, str],
+    selection_label: str,
+    up_relation: dict[str, Any] | None = None,
+) -> None:
+    numerator_summary = aggregate_division_value(items, numerator_field, up_relation)
+    denominator_summary = aggregate_division_value(items, denominator_field, up_relation)
+    numerator_total = numerator_summary["value"]
+    denominator_total = denominator_summary["value"]
+
+    ratio = (
+        None
+        if numerator_total is None or denominator_total in (None, 0)
+        else numerator_total / denominator_total
+    )
+
+    print("Division result for all selected videos")
+    print(f"Selection: {selection_label}")
+    selected_count = len(items)
+    print(
+        f"Ratio: {aggregate_division_label(numerator_field, selected_count)} / "
+        f"{aggregate_division_label(denominator_field, selected_count)}"
+    )
+    print(f"Selected videos: {selected_count}")
+    print(f"{aggregate_division_label(numerator_field, selected_count)}: {format_count(numerator_total)}")
+    print(f"{aggregate_division_label(denominator_field, selected_count)}: {format_count(denominator_total)}")
+    if numerator_summary["missing"] or denominator_summary["missing"]:
+        print(
+            "Missing data: "
+            f"{numerator_field['label']} {numerator_summary['missing']}, "
+            f"{denominator_field['label']} {denominator_summary['missing']}"
+        )
+    if division_needs_up_relation(numerator_field, denominator_field):
+        print("Followers is multiplied by the selected video count in aggregate mode.")
+    print(f"Ratio: {format_ratio(ratio)}")
 
 
 async def fetch_video_summaries(
@@ -1556,7 +1777,7 @@ def filter_items_by_metric_range(
     ]
 
 
-def analyse_data() -> None:
+def get_mean_and_median() -> None:
     selected_up = load_selected_up()
     if selected_up is None:
         print("No UP is selected. Select an UP first.")
@@ -1613,6 +1834,91 @@ def analyse_data() -> None:
     asyncio.run(fetch_and_close())
 
 
+def do_division() -> None:
+    selected_up = load_selected_up()
+    if selected_up is None:
+        print("No UP is selected. Select an UP first.")
+        return
+
+    mode = prompt_division_mode()
+    if mode is None:
+        return
+
+    division_fields = prompt_division_fields()
+    if division_fields is None:
+        return
+    numerator_field, denominator_field = division_fields
+
+    uid = uid_from_up(selected_up)
+    credential = credential_for_requests()
+
+    async def fetch_and_divide() -> None:
+        uploader = user.User(uid, credential=credential)
+        try:
+            first_page = await uploader.get_videos(pn=1, ps=1, order=user.VideoOrder.PUBDATE)
+        except Exception as exc:
+            print(f"Failed to fetch video list: {exc}")
+            return
+
+        total = video_total_from_response(first_page)
+        if total <= 0:
+            print("No videos found for this UP.")
+            return
+
+        up_relation: dict[str, Any] | None = None
+        if division_needs_up_relation(numerator_field, denominator_field):
+            try:
+                up_relation = await uploader.get_relation_info()
+            except Exception as exc:
+                print(f"Failed to fetch selected UP follower data: {exc}")
+                return
+
+        selection = prompt_video_selection_choice(action_name="Division")
+        if selection is None:
+            return
+
+        selected = await fetch_items_for_selection(
+            uploader,
+            credential,
+            total,
+            selection,
+            action_name="Division",
+        )
+        if selected is None:
+            return
+        selected_items, selection_label = selected
+
+        if not selected_items:
+            print("No videos matched the selected range.")
+            return
+
+        if mode == "single":
+            print_single_video_division_result(
+                selected_items,
+                numerator_field,
+                denominator_field,
+                selection_label,
+                up_relation,
+            )
+        else:
+            print_aggregate_division_result(
+                selected_items,
+                numerator_field,
+                denominator_field,
+                selection_label,
+                up_relation,
+            )
+
+    async def fetch_and_close() -> None:
+        configure_bilibili_client()
+        try:
+            await fetch_and_divide()
+        finally:
+            await close_bilibili_client()
+
+    asyncio.run(fetch_and_close())
+
+
 def plot_data() -> None:
     print("Plot data is not implemented yet.")
 
@@ -1629,9 +1935,10 @@ def print_main_menu() -> None:
     print("4. Set request frequency")
     print("5. Select an UP")
     print("6. View the selected UP's account details")
-    print("7. Get the video list")
-    print("8. Analyse the data")
-    print("9. Plot the data")
+    print("7. Get the video list with details")
+    print("8. Calculate the mean and median of the data")
+    print("9. Divide one data set by another")
+    print("10. Plot the data")
     print("0. Exit")
 
 
@@ -1657,8 +1964,10 @@ def run_menu() -> None:
         elif choice == "7":
             get_video_list()
         elif choice == "8":
-            analyse_data()
+            get_mean_and_median()
         elif choice == "9":
+            do_division()
+        elif choice == "10":
             plot_data()
         elif choice == "0":
             break

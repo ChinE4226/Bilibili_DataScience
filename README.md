@@ -49,9 +49,9 @@ Bilibili_DataScience/
 {
   "ups": [
     {
-      "name": "Geekerwan",
-      "space": "https://space.bilibili.com/25876945",
-      "uid": "25876945"
+      "name": "Example",
+      "space": "https://space.bilibili.com/123Example456",
+      "uid": "123Example456"
     }
   ]
 }
@@ -78,7 +78,9 @@ Rules:
 
 5. analyse videos selected by the same range menu, then calculate mean average and median for views, likes, replies, favorites, coins, and shares
 
-6. plot the data of the UP's videos, selected by the specific data
+6. divide one selected data set by another, either for every selected video or once across all selected videos, using views, likes, replies, favorites, coins, shares, or followers. In aggregate mode, followers are multiplied by the selected video count.
+
+7. plot the data of the UP's videos, selected by the specific data
 
 ## the APIs source
 
