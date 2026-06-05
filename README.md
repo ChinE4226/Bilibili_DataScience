@@ -10,6 +10,18 @@ double-click the file "start-macos.command"
 
 the automatic programme will check the environment and get start
 
+To start the local web UI in Google Chrome, double-click `start-web.command` or run:
+
+```
+$ python3 web_server.py
+```
+
+Then open:
+
+```
+http://127.0.0.1:8000
+```
+
 ```
 $ pip3 install bilibili-api-python
 
@@ -23,6 +35,8 @@ Bilibili_DataScience/
 ├── README.md
 ├── LICENSE
 ├── start-macos.command
+├── start-web.command
+├── web_server.py
 ├── main/
 │   └── main.py
 ├── objects/
@@ -37,7 +51,9 @@ Bilibili_DataScience/
 ### Main Files
 
 - `start-macos.command`: macOS launcher. Double-click it to start `main/main.py`.
+- `start-web.command`: macOS launcher. Double-click it to start the local web server.
 - `main/main.py`: main terminal programme, menu flow, sign-in, UP selection, and Bilibili API requests.
+- `web_server.py`: local Python web server for viewing saved plots, saved UPs, and project status in a browser.
 - `objects/ups.json`: permanent UP list. This file should store only UP identity data.
 - `.runtime/`: local runtime cache for sign-in accounts, active account selection, and QR code images. The directory placeholder is tracked by git; generated files inside it are ignored.
 
@@ -80,7 +96,32 @@ Rules:
 
 6. divide one selected data set by another, either for every selected video or once across all selected videos, using views, likes, replies, favorites, coins, shares, or followers. In aggregate mode, followers are multiplied by the selected video count.
 
-7. plot the data of the UP's videos, selected by the specific data
+7. plot selected videos by published time as a PNG, either for one data field or for the quotient of one data set divided by another
+
+8. run a local web server to use the main account, UP, video listing, analysis, division, and plotting functions from a browser
+
+## Web Server
+
+The local web server uses only Python standard-library HTTP server tools. It binds to `127.0.0.1:8000` by default, or the next free port if `8000` is already in use. The macOS launcher opens the page with Google Chrome.
+
+Useful endpoints:
+
+- `/`: browser dashboard
+- `/api/health`: project status, selected UP, account condition, and request frequency
+- `/api/ups`: saved UP list
+- `/api/plots`: generated PNG plot list
+- `/plots/<file>.png`: generated plot image files
+
+The dashboard includes controls for:
+
+- selecting and adding UPs
+- selecting videos by published-time number range, published time range, or metric value range
+- listing videos
+- calculating mean and median
+- calculating division ratios
+- plotting one data field or a quotient in the browser
+- viewing account and selected UP details
+- QR sign-in, cached account selection, guest mode, sign-out, and request frequency
 
 ## the APIs source
 

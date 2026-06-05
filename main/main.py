@@ -26,6 +26,15 @@ COOKIE_FILE = RUNTIME_DIR / "bilibili_cookie.txt"
 LEGACY_CREDENTIAL_FILE = RUNTIME_DIR / "bilibili_credential.json"
 ACCOUNTS_DIR = RUNTIME_DIR / "accounts"
 ACTIVE_ACCOUNT_FILE = RUNTIME_DIR / "active_account.json"
+PLOTS_DIR = RUNTIME_DIR / "plots"
+
+os.environ.setdefault("MPLCONFIGDIR", str(RUNTIME_DIR / "matplotlib"))
+os.environ.setdefault("XDG_CACHE_HOME", str(RUNTIME_DIR / "cache"))
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 DEFAULT_REQUEST_FREQUENCY = 4.0
 REQUEST_FREQUENCY = DEFAULT_REQUEST_FREQUENCY
@@ -1314,7 +1323,7 @@ def division_field_choices() -> list[dict[str, str]]:
     return choices
 
 
-def prompt_stat_field(prompt_text: str) -> dict[str, str] | None:
+def prompt_stat_field(prompt_text: str, *, action_name: str = "Division") -> dict[str, str] | None:
     choices = division_field_choices()
 
     print(prompt_text)
@@ -1325,7 +1334,7 @@ def prompt_stat_field(prompt_text: str) -> dict[str, str] | None:
     while True:
         choice = input("-> ").strip()
         if choice == "0" or choice == "":
-            print("Division canceled.")
+            print(f"{action_name} canceled.")
             return None
         try:
             index = int(choice) - 1
@@ -1337,12 +1346,12 @@ def prompt_stat_field(prompt_text: str) -> dict[str, str] | None:
         print("Invalid selection.")
 
 
-def prompt_division_fields() -> tuple[dict[str, str], dict[str, str]] | None:
-    numerator = prompt_stat_field("Choose numerator data:")
+def prompt_division_fields(*, action_name: str = "Division") -> tuple[dict[str, str], dict[str, str]] | None:
+    numerator = prompt_stat_field("Choose numerator data:", action_name=action_name)
     if numerator is None:
         return None
 
-    denominator = prompt_stat_field("Choose denominator data:")
+    denominator = prompt_stat_field("Choose denominator data:", action_name=action_name)
     if denominator is None:
         return None
 
@@ -1919,8 +1928,230 @@ def do_division() -> None:
     asyncio.run(fetch_and_close())
 
 
+def prompt_plot_mode() -> str | None:
+    print("Choose plot mode:")
+    print("1. Plot one data field of selected videos")
+    print("2. Plot the quotient of one data set divided by another")
+    print("0. Return to the menu")
+
+    while True:
+        choice = input("-> ").strip()
+        if choice == "0" or choice == "":
+            print("Plot canceled.")
+            return None
+        if choice == "1":
+            return "field"
+        if choice == "2":
+            return "quotient"
+        print("Enter 1, 2, or 0.")
+
+
+def prompt_video_stat_field(prompt_text: str) -> dict[str, str] | None:
+    choices = [
+        {"field": field_key, "label": label, "stat_key": stat_key}
+        for field_key, label, stat_key in VIDEO_STAT_FIELDS
+    ]
+
+    print(prompt_text)
+    for index, field in enumerate(choices, start=1):
+        print(f"{index}. {field['label']}")
+    print("0. Return to the menu")
+
+    while True:
+        choice = input("-> ").strip()
+        if choice == "0" or choice == "":
+            print("Plot canceled.")
+            return None
+        try:
+            index = int(choice) - 1
+        except ValueError:
+            print("Enter a number.")
+            continue
+        if 0 <= index < len(choices):
+            return choices[index]
+        print("Invalid selection.")
+
+
+def ordered_by_published_time(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sort_video_items(
+        items,
+        video_sort_mode("published_time", "Published time", None, False),
+    )
+
+
+def plot_file_path(selected_up: dict[str, str], plot_label: str) -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_up_name = re.sub(r"[^\w.-]+", "_", selected_up.get("name", ""), flags=re.UNICODE).strip("_")[:40]
+    up_part = f"{safe_up_name}_{selected_up['uid']}" if safe_up_name else selected_up["uid"]
+    safe_label = re.sub(r"[^\w.-]+", "_", plot_label, flags=re.UNICODE).strip("_")[:80] or "plot"
+    return PLOTS_DIR / f"{up_part}_{timestamp}_{safe_label}.png"
+
+
+def build_plot_points(
+    items: list[dict[str, Any]],
+    value_getter: Any,
+) -> tuple[list[datetime], list[float], int]:
+    x_values: list[datetime] = []
+    y_values: list[float] = []
+    skipped = 0
+
+    for item in ordered_by_published_time(items):
+        published_time = video_published_timestamp(item)
+        value = value_getter(item)
+        if published_time is None or value is None:
+            skipped += 1
+            continue
+        x_values.append(datetime.fromtimestamp(published_time))
+        y_values.append(float(value))
+
+    return x_values, y_values, skipped
+
+
+def save_line_plot(
+    *,
+    selected_up: dict[str, str],
+    selection_label: str,
+    plot_label: str,
+    y_label: str,
+    x_values: list[datetime],
+    y_values: list[float],
+) -> Path:
+    PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = plot_file_path(selected_up, plot_label)
+
+    figure, axis = plt.subplots(figsize=(12, 6))
+    axis.plot(x_values, y_values, marker="o", linewidth=1.5, markersize=4)
+    axis.set_title(f"{selected_up['name']} - {plot_label}")
+    axis.set_xlabel("Published time")
+    axis.set_ylabel(y_label)
+    axis.grid(True, linewidth=0.4, alpha=0.45)
+    axis.text(
+        0.01,
+        0.99,
+        selection_label,
+        transform=axis.transAxes,
+        va="top",
+        ha="left",
+        fontsize=8,
+        bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "alpha": 0.75, "edgecolor": "#cccccc"},
+    )
+    figure.autofmt_xdate()
+    figure.tight_layout()
+    figure.savefig(output_path, dpi=160)
+    plt.close(figure)
+    return output_path
+
+
+def print_plot_result(output_path: Path, plotted_count: int, skipped_count: int) -> None:
+    print(f"Plotted points: {plotted_count}")
+    if skipped_count:
+        print(f"Skipped videos with missing published time, missing data, or zero denominator: {skipped_count}")
+    print(f"Plot saved to: {output_path}")
+
+
 def plot_data() -> None:
-    print("Plot data is not implemented yet.")
+    selected_up = load_selected_up()
+    if selected_up is None:
+        print("No UP is selected. Select an UP first.")
+        return
+
+    mode = prompt_plot_mode()
+    if mode is None:
+        return
+
+    if mode == "field":
+        field = prompt_video_stat_field("Choose data to plot:")
+        if field is None:
+            return
+        numerator_field = None
+        denominator_field = None
+    else:
+        division_fields = prompt_division_fields(action_name="Plot")
+        if division_fields is None:
+            return
+        numerator_field, denominator_field = division_fields
+        field = None
+
+    uid = uid_from_up(selected_up)
+    credential = credential_for_requests()
+
+    async def fetch_and_plot() -> None:
+        uploader = user.User(uid, credential=credential)
+        try:
+            first_page = await uploader.get_videos(pn=1, ps=1, order=user.VideoOrder.PUBDATE)
+        except Exception as exc:
+            print(f"Failed to fetch video list: {exc}")
+            return
+
+        total = video_total_from_response(first_page)
+        if total <= 0:
+            print("No videos found for this UP.")
+            return
+
+        up_relation: dict[str, Any] | None = None
+        if mode == "quotient" and division_needs_up_relation(numerator_field, denominator_field):
+            try:
+                up_relation = await uploader.get_relation_info()
+            except Exception as exc:
+                print(f"Failed to fetch selected UP follower data: {exc}")
+                return
+
+        selection = prompt_video_selection_choice(action_name="Plot")
+        if selection is None:
+            return
+
+        selected = await fetch_items_for_selection(
+            uploader,
+            credential,
+            total,
+            selection,
+            action_name="Plot",
+        )
+        if selected is None:
+            return
+        selected_items, selection_label = selected
+
+        if not selected_items:
+            print("No videos matched the selected range.")
+            return
+
+        if mode == "field":
+            x_values, y_values, skipped = build_plot_points(
+                selected_items,
+                lambda item: video_metric_value(item, field["stat_key"]),
+            )
+            plot_label = field["label"]
+            y_label = field["label"]
+        else:
+            x_values, y_values, skipped = build_plot_points(
+                selected_items,
+                lambda item: ratio_for_item(item, numerator_field, denominator_field, up_relation)[2],
+            )
+            plot_label = f"{numerator_field['label']} divided by {denominator_field['label']}"
+            y_label = f"{numerator_field['label']} / {denominator_field['label']}"
+
+        if not x_values:
+            print("No plottable data was found in the selected videos.")
+            return
+
+        output_path = save_line_plot(
+            selected_up=selected_up,
+            selection_label=selection_label,
+            plot_label=plot_label,
+            y_label=y_label,
+            x_values=x_values,
+            y_values=y_values,
+        )
+        print_plot_result(output_path, len(x_values), skipped)
+
+    async def fetch_and_close() -> None:
+        configure_bilibili_client()
+        try:
+            await fetch_and_plot()
+        finally:
+            await close_bilibili_client()
+
+    asyncio.run(fetch_and_close())
 
 
 def print_main_menu() -> None:
