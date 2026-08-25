@@ -35,6 +35,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib import dates as mdates
+from matplotlib import ticker
 
 DEFAULT_REQUEST_FREQUENCY = 4.0
 REQUEST_FREQUENCY = DEFAULT_REQUEST_FREQUENCY
@@ -2018,13 +2020,23 @@ def save_line_plot(
 ) -> Path:
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
     output_path = plot_file_path(selected_up, plot_label)
+    y_min = min(y_values)
+    y_max = max(y_values)
+    y_spread = y_max - y_min
+    y_pad = max(y_spread * 0.12, abs(y_max) * 0.03, 1.0) if y_spread else max(abs(y_max) * 0.12, 1.0)
 
-    figure, axis = plt.subplots(figsize=(12, 6))
-    axis.plot(x_values, y_values, marker="o", linewidth=1.5, markersize=4)
+    figure, axis = plt.subplots(figsize=(13, 7))
+    axis.plot(x_values, y_values, marker="o", linewidth=2.0, markersize=4.5)
     axis.set_title(f"{selected_up['name']} - {plot_label}")
     axis.set_xlabel("Published time")
     axis.set_ylabel(y_label)
-    axis.grid(True, linewidth=0.4, alpha=0.45)
+    axis.set_ylim(y_min - y_pad, y_max + y_pad)
+    axis.margins(x=0.03)
+    axis.grid(True, linewidth=0.5, alpha=0.5)
+    axis.yaxis.set_major_locator(ticker.MaxNLocator(nbins=7))
+    axis.yaxis.set_major_formatter(ticker.StrMethodFormatter("{x:,.2f}"))
+    axis.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=8))
+    axis.xaxis.set_major_formatter(mdates.ConciseDateFormatter(axis.xaxis.get_major_locator()))
     axis.text(
         0.01,
         0.99,

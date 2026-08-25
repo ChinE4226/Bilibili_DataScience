@@ -52,6 +52,8 @@ def load_terminal_app() -> Any:
 
 
 APP = load_terminal_app()
+from matplotlib import dates as mdates
+from matplotlib import ticker
 
 
 def json_bytes(data: Any) -> bytes:
@@ -122,19 +124,35 @@ def save_web_plot_png(
 
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
     output_path = plot_file_path(selected, plot_label)
-    x_values = list(range(1, len(points) + 1))
+    parsed_dates = [
+        datetime.strptime(str(point["label"]), "%Y-%m-%d %H:%M:%S")
+        for point in points
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", str(point["label"]))
+    ]
+    x_values = parsed_dates if len(parsed_dates) == len(points) else list(range(1, len(points) + 1))
     y_values = [float(point["value"]) for point in points]
-    labels = [str(point["label"])[:10] for point in points]
+    y_min = min(y_values)
+    y_max = max(y_values)
+    y_spread = y_max - y_min
+    y_pad = max(y_spread * 0.12, abs(y_max) * 0.03, 1.0) if y_spread else max(abs(y_max) * 0.12, 1.0)
 
-    figure, axis = APP.plt.subplots(figsize=(12, 6))
-    axis.plot(x_values, y_values, marker="o", linewidth=1.5, markersize=4)
+    figure, axis = APP.plt.subplots(figsize=(13, 7))
+    axis.plot(x_values, y_values, marker="o", linewidth=2.0, markersize=4.5)
     axis.set_title(f"{selected['name']} (UID {selected['uid']}) - {plot_label}")
     axis.set_xlabel("Published time")
     axis.set_ylabel(y_label)
-    axis.grid(True, linewidth=0.4, alpha=0.45)
-    if labels:
-        step = max(1, len(labels) // 8)
+    axis.set_ylim(y_min - y_pad, y_max + y_pad)
+    axis.margins(x=0.03)
+    axis.grid(True, linewidth=0.5, alpha=0.5)
+    axis.yaxis.set_major_locator(ticker.MaxNLocator(nbins=7))
+    axis.yaxis.set_major_formatter(ticker.StrMethodFormatter("{x:,.2f}"))
+    if x_values and isinstance(x_values[0], datetime):
+        axis.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=8))
+        axis.xaxis.set_major_formatter(mdates.ConciseDateFormatter(axis.xaxis.get_major_locator()))
+    else:
+        step = max(1, len(points) // 8)
         ticks = x_values[::step]
+        labels = [str(point["label"])[:10] for point in points]
         axis.set_xticks(ticks)
         axis.set_xticklabels(labels[::step], rotation=30, ha="right")
     axis.text(
@@ -147,6 +165,7 @@ def save_web_plot_png(
         fontsize=8,
         bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "alpha": 0.75, "edgecolor": "#cccccc"},
     )
+    figure.autofmt_xdate()
     figure.tight_layout()
     figure.savefig(output_path, dpi=160)
     APP.plt.close(figure)
@@ -343,6 +362,80 @@ def ratio_value(
     return numerator_value / denominator_value
 
 
+async def fetch_web_video_summaries(
+    uploader: Any,
+    target_count: int,
+    order: Any,
+    *,
+    progress_label: str,
+    start_percent: int,
+    end_percent: int,
+) -> list[dict[str, Any]]:
+    page_size = 30
+    page_number = 1
+    fetched_items: list[dict[str, Any]] = []
+    total_pages = max(1, (target_count + page_size - 1) // page_size)
+
+    while len(fetched_items) < target_count:
+        percent = start_percent + int((len(fetched_items) / max(target_count, 1)) * (end_percent - start_percent))
+        set_progress(
+            f"{progress_label}: page {page_number}/{total_pages}, {len(fetched_items)}/{target_count} summaries fetched.",
+            percent=percent,
+            count=len(fetched_items),
+        )
+        try:
+            page_data = await uploader.get_videos(pn=page_number, ps=page_size, order=order)
+        except Exception as exc:
+            set_progress(f"Failed to fetch video summary page {page_number}: {exc}", percent=percent)
+            break
+
+        page_items = page_data.get("list", {}).get("vlist", [])
+        if not page_items:
+            break
+
+        fetched_items.extend(page_items[: target_count - len(fetched_items)])
+        set_progress(
+            f"{progress_label}: {len(fetched_items)}/{target_count} summaries fetched.",
+            percent=start_percent + int((len(fetched_items) / max(target_count, 1)) * (end_percent - start_percent)),
+            count=len(fetched_items),
+        )
+        page_number += 1
+        await asyncio.sleep(APP.request_delay_seconds())
+
+    return fetched_items
+
+
+async def enrich_web_video_items(
+    items: list[dict[str, Any]],
+    credential: Any,
+    *,
+    progress_label: str,
+    start_percent: int,
+    end_percent: int,
+) -> list[dict[str, Any]]:
+    enriched_items: list[dict[str, Any]] = []
+    total = len(items)
+    if total == 0:
+        set_progress(f"{progress_label}: no video details to fetch.", percent=end_percent, count=0)
+        return enriched_items
+
+    for index, item in enumerate(items, start=1):
+        set_progress(
+            f"{progress_label}: fetching detail {index}/{total}.",
+            percent=start_percent + int(((index - 1) / total) * (end_percent - start_percent)),
+            count=index - 1,
+        )
+        enriched_items.append(await APP.fetch_video_detail(item, credential))
+        set_progress(
+            f"{progress_label}: fetched detail {index}/{total}.",
+            percent=start_percent + int((index / total) * (end_percent - start_percent)),
+            count=index,
+        )
+        await asyncio.sleep(APP.request_delay_seconds())
+
+    return enriched_items
+
+
 async def fetch_selected_video_items(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], str, int | None]:
     selected = selected_up()
     if selected is None:
@@ -352,11 +445,13 @@ async def fetch_selected_video_items(payload: dict[str, Any]) -> tuple[list[dict
     uploader = APP.user.User(int(selected["uid"]), credential=credential)
     selection = payload.get("selection") if isinstance(payload.get("selection"), dict) else {}
     kind = selection.get("kind") or "latest"
+    action = str(payload.get("action") or "video")
+    action_label = {"list": "Listing", "analysis": "Analysis", "division": "Division", "plot": "Plotting"}.get(action, "Video action")
 
     APP.REQUEST_FREQUENCY = REQUEST_FREQUENCY
     APP.configure_bilibili_client()
     try:
-        set_progress("Checking selected UP video count.", running=True, percent=5, count=0)
+        set_progress(f"{action_label}: checking selected UP video count.", running=True, percent=5, count=0)
         first_page = await uploader.get_videos(pn=1, ps=1, order=APP.user.VideoOrder.PUBDATE)
         total = APP.video_total_from_response(first_page)
         if total <= 0:
@@ -368,20 +463,33 @@ async def fetch_selected_video_items(payload: dict[str, Any]) -> tuple[list[dict
             end = min(int(selection.get("end") or start), total)
             if start > end:
                 raise ValueError("Start number must be smaller than or equal to end number.")
-            set_progress(f"Fetching video summaries {start}-{end} of {total}.", percent=35)
-            summaries = await APP.fetch_video_summaries(uploader, end, APP.user.VideoOrder.PUBDATE)
+            summaries = await fetch_web_video_summaries(
+                uploader,
+                end,
+                APP.user.VideoOrder.PUBDATE,
+                progress_label=f"{action_label}: fetching video summaries {start}-{end} of {total}",
+                start_percent=15,
+                end_percent=50,
+            )
             selected_summaries = summaries[start - 1 : end]
-            set_progress(f"Fetching details for {len(selected_summaries)} selected video(s).", percent=70)
-            items = await APP.enrich_video_items(
+            items = await enrich_web_video_items(
                 selected_summaries,
                 credential,
-                progress_label="Fetching details for selected videos.",
+                progress_label=f"{action_label}: fetching selected video details",
+                start_percent=55,
+                end_percent=88,
             )
             set_progress(f"Selected {len(items)} video(s).", percent=90, count=len(items))
             return sort_by_published_time(items), f"published-time positions {start}-{end}", total
 
-        set_progress(f"Fetching summaries for all {total} video(s).", percent=30)
-        summaries = await APP.fetch_video_summaries(uploader, total, APP.user.VideoOrder.PUBDATE)
+        summaries = await fetch_web_video_summaries(
+            uploader,
+            total,
+            APP.user.VideoOrder.PUBDATE,
+            progress_label=f"{action_label}: fetching summaries for all {total} video(s)",
+            start_percent=15,
+            end_percent=50,
+        )
 
         if kind == "published":
             start_raw = str(selection.get("start_time") or "").strip()
@@ -400,11 +508,12 @@ async def fetch_selected_video_items(payload: dict[str, Any]) -> tuple[list[dict
                 if (timestamp := video_timestamp(item)) is not None
                 if start_ts <= timestamp <= end_ts
             ]
-            set_progress(f"Fetching details for {len(selected_summaries)} video(s) in the time range.", percent=70)
-            items = await APP.enrich_video_items(
+            items = await enrich_web_video_items(
                 selected_summaries,
                 credential,
-                progress_label="Fetching details for selected videos.",
+                progress_label=f"{action_label}: fetching details for videos in the time range",
+                start_percent=60,
+                end_percent=88,
             )
             set_progress(f"Selected {len(items)} video(s).", percent=90, count=len(items))
             return sort_by_published_time(items), f"published time {start_raw} to {end_raw}", total
@@ -417,11 +526,12 @@ async def fetch_selected_video_items(payload: dict[str, Any]) -> tuple[list[dict
             maximum = parse_range_number(selection.get("maximum"))
             if minimum is None and maximum is None:
                 raise ValueError("Enter at least one metric boundary.")
-            set_progress(f"Fetching details for {len(summaries)} video(s) before metric filtering.", percent=60)
-            items = await APP.enrich_video_items(
+            items = await enrich_web_video_items(
                 summaries,
                 credential,
-                progress_label="Fetching details before filtering.",
+                progress_label=f"{action_label}: fetching details before metric filtering",
+                start_percent=55,
+                end_percent=85,
             )
             filtered = [
                 item
@@ -683,6 +793,8 @@ async def execute_video_action(payload: dict[str, Any]) -> dict[str, Any]:
                 "count": len(items),
                 "points": points,
                 "plot_file": plot_file,
+                "plot_label": plot_label,
+                "y_label": y_label,
             }
 
         raise ValueError("Invalid action.")
@@ -850,6 +962,9 @@ def dashboard_html() -> bytes:
       background: #fafafa;
       color: var(--muted);
     }
+    .panel-progress {
+      margin: 10px 0 12px;
+    }
     .plot-field-control[hidden],
     .plot-quotient-control[hidden] { display: none !important; }
     .saved-plots-grid {
@@ -996,6 +1111,7 @@ def dashboard_html() -> bytes:
           <label class="plot-quotient-control" hidden>Denominator <select id="plot-denominator"></select></label>
         </div>
         <button id="run-plot">Plot Selected Videos</button>
+        <div id="plot-progress" class="progress panel-progress" hidden>Idle.</div>
         <div id="plot-chart" class="chart"></div>
         <div id="plot-result" class="result"></div>
       </section>
@@ -1187,51 +1303,109 @@ def dashboard_html() -> bytes:
         element.hidden = !quotient;
       });
     }
-    function renderPlot(points) {
+    function formatAxisNumber(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return "0";
+      const abs = Math.abs(number);
+      if (abs >= 1000000) {
+        return new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 2 }).format(number);
+      }
+      if (abs >= 1000) {
+        return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(number);
+      }
+      if (abs >= 1) {
+        return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(number);
+      }
+      if (abs >= 0.01) {
+        return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(number);
+      }
+      if (number === 0) return "0";
+      return number.toExponential(2);
+    }
+    function renderPlot(points, yLabel = "Value") {
       const host = document.getElementById("plot-chart");
-      if (!points.length) {
+      const plotPoints = points
+        .map((point) => ({ ...point, value: Number(point.value) }))
+        .filter((point) => Number.isFinite(point.value));
+      if (!plotPoints.length) {
         host.innerHTML = "<p class='muted'>No points to plot.</p>";
         return;
       }
-      const width = 1000;
-      const height = 340;
-      const pad = 42;
-      const values = points.map((p) => Number(p.value));
-      const min = Math.min(...values);
-      const max = Math.max(...values);
-      const spread = max - min || 1;
-      const step = points.length > 1 ? (width - pad * 2) / (points.length - 1) : 0;
-      const coords = points.map((point, index) => {
-        const x = pad + step * index;
-        const y = height - pad - ((Number(point.value) - min) / spread) * (height - pad * 2);
+      const width = 1040;
+      const height = 430;
+      const padding = { top: 30, right: 28, bottom: 78, left: 96 };
+      const plotWidth = width - padding.left - padding.right;
+      const plotHeight = height - padding.top - padding.bottom;
+      const values = plotPoints.map((point) => point.value);
+      let min = Math.min(...values);
+      let max = Math.max(...values);
+      const spread = max - min;
+      const pad = spread ? Math.max(spread * 0.12, Math.abs(max) * 0.03, 1) : Math.max(Math.abs(max) * 0.12, 1);
+      min -= pad;
+      max += pad;
+      const domain = max - min || 1;
+      const step = plotPoints.length > 1 ? plotWidth / (plotPoints.length - 1) : 0;
+      const coords = plotPoints.map((point, index) => {
+        const x = padding.left + step * index;
+        const y = padding.top + plotHeight - ((point.value - min) / domain) * plotHeight;
         return { x, y, point };
       });
       const line = coords.map((coord) => `${coord.x},${coord.y}`).join(" ");
+      const tickCount = 6;
+      const yTicks = Array.from({ length: tickCount }, (_, index) => min + (domain * index) / (tickCount - 1));
+      const xTickStep = Math.max(1, Math.ceil(plotPoints.length / 7));
+      const xTicks = plotPoints
+        .map((point, index) => ({ point, index }))
+        .filter(({ index }) => index === 0 || index === plotPoints.length - 1 || index % xTickStep === 0);
       host.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img">
-        <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" stroke="#111"/>
-        <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height - pad}" stroke="#111"/>
-        <polyline points="${line}" fill="none" stroke="#111" stroke-width="2"/>
-        ${coords.map((coord) => `<circle cx="${coord.x}" cy="${coord.y}" r="4" fill="#111"><title>${escapeHTML(coord.point.title)} | ${escapeHTML(coord.point.label)} | ${coord.point.value}</title></circle>`).join("")}
-        <text x="${pad}" y="22" fill="#111">${max.toFixed(2)}</text>
-        <text x="${pad}" y="${height - 8}" fill="#111">${min.toFixed(2)}</text>
+        <rect x="0" y="0" width="${width}" height="${height}" fill="#fff"/>
+        ${yTicks.map((tick) => {
+          const y = padding.top + plotHeight - ((tick - min) / domain) * plotHeight;
+          return `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="#e5e5e5"/>
+            <text x="${padding.left - 10}" y="${y + 4}" text-anchor="end" fill="#555" font-size="13">${escapeHTML(formatAxisNumber(tick))}</text>`;
+        }).join("")}
+        <line x1="${padding.left}" y1="${padding.top + plotHeight}" x2="${width - padding.right}" y2="${padding.top + plotHeight}" stroke="#111" stroke-width="1.5"/>
+        <line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${padding.top + plotHeight}" stroke="#111" stroke-width="1.5"/>
+        ${xTicks.map(({ point, index }) => {
+          const x = padding.left + step * index;
+          const label = String(point.label || "").slice(0, 10);
+          return `<line x1="${x}" y1="${padding.top + plotHeight}" x2="${x}" y2="${padding.top + plotHeight + 6}" stroke="#111"/>
+            <text x="${x}" y="${padding.top + plotHeight + 24}" text-anchor="middle" fill="#555" font-size="12">${escapeHTML(label)}</text>`;
+        }).join("")}
+        <polyline points="${line}" fill="none" stroke="#111" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+        ${coords.map((coord) => `<circle cx="${coord.x}" cy="${coord.y}" r="4.5" fill="#111"><title>${escapeHTML(coord.point.title)} | ${escapeHTML(coord.point.label)} | ${escapeHTML(formatAxisNumber(coord.point.value))}</title></circle>`).join("")}
+        <text x="${padding.left + plotWidth / 2}" y="${height - 18}" text-anchor="middle" fill="#111" font-size="14">Published time</text>
+        <text transform="translate(24 ${padding.top + plotHeight / 2}) rotate(-90)" text-anchor="middle" fill="#111" font-size="14">${escapeHTML(yLabel)}</text>
       </svg>`;
     }
     let progressTimer = null;
     let progressStartedAt = null;
+    let activeProgressTarget = null;
     function progressLine(data) {
       const elapsed = progressStartedAt ? ` Elapsed: ${Math.max(0, Math.round((Date.now() - progressStartedAt) / 1000))}s.` : "";
       const count = data.count === null || data.count === undefined ? "" : ` Selected: ${data.count}.`;
       return `${data.message || "Running."}${elapsed}${count}`;
     }
+    function setProgressText(line) {
+      document.getElementById("progress").textContent = line;
+      if (activeProgressTarget) {
+        const target = document.getElementById(activeProgressTarget);
+        if (target) {
+          target.hidden = false;
+          target.textContent = line;
+        }
+      }
+    }
     async function refreshProgress() {
       const data = await getJSON("/api/progress");
-      document.getElementById("progress").textContent = progressLine(data);
+      setProgressText(progressLine(data));
       return data;
     }
-    function startProgressPolling(label) {
+    function startProgressPolling(label, targetId = null) {
       clearInterval(progressTimer);
       progressStartedAt = Date.now();
-      document.getElementById("progress").textContent = `${label}: request started.`;
+      activeProgressTarget = targetId;
+      setProgressText(`${label}: request started.`);
       progressTimer = setInterval(() => {
         refreshProgress().catch(() => {});
       }, 800);
@@ -1241,10 +1415,11 @@ def dashboard_html() -> bytes:
       progressTimer = null;
       await refreshProgress().catch(() => {});
       progressStartedAt = null;
+      activeProgressTarget = null;
     }
-    async function runAction(action, extra = {}) {
+    async function runAction(action, extra = {}, progressTarget = null) {
       const labels = { list: "Listing videos", analysis: "Analyzing videos", division: "Calculating division", plot: "Plotting data" };
-      startProgressPolling(labels[action] || "Running action");
+      startProgressPolling(labels[action] || "Running action", progressTarget);
       try {
         return await postJSON("/api/video-action", { action, selection: selectionPayload(), ...extra });
       } finally {
@@ -1359,8 +1534,8 @@ def dashboard_html() -> bytes:
           field: document.getElementById("plot-field").value,
           numerator: document.getElementById("plot-numerator").value,
           denominator: document.getElementById("plot-denominator").value
-        });
-        renderPlot(data.points);
+        }, "plot-progress");
+        renderPlot(data.points, data.y_label || data.plot_label || "Value");
         const savedPlot = data.plot_file ? `<p class="muted">Saved PNG: ${escapeHTML(data.plot_file)}</p>` : "";
         document.getElementById("plot-result").innerHTML = savedPlot + table(["Title", "Published", "Value"], data.points.map((point) => [point.title, point.label, point.value]));
         await load();
