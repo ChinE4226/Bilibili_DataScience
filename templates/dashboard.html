@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="dev-reload-token" content="__DEV_RELOAD_TOKEN__">
+  <title>Bilibili Data Science</title>
+  <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body>
+  <header>
+    <h1>Bilibili Data Science</h1>
+    <div id="status" class="muted">Loading...</div>
+  </header>
+  <nav aria-label="Main navigation">
+    <button data-panel="up" aria-current="page">UP Detail</button>
+    <button data-panel="single-video">Single Video</button>
+    <button data-panel="videos">Videos</button>
+    <button data-panel="analysis">Analysis</button>
+    <button data-panel="division">Division</button>
+    <button data-panel="plot">Plot</button>
+    <button data-panel="saved-plots">Saved Plots</button>
+    <button class="nav-settings" data-panel="settings">Settings</button>
+  </nav>
+  <main>
+    <aside class="stack" aria-label="UP library">
+      <details id="up-picker" class="up-picker" open>
+        <summary>UP Library <span id="selected" class="muted">Loading...</span></summary>
+        <div class="grid">
+          <label>Search saved UPs <input id="up-search" placeholder="Name or UID"></label>
+          <div id="ups" class="up-list"></div>
+        </div>
+        <details class="add-up">
+          <summary>Add UP</summary>
+          <div class="grid">
+            <label>Name <input id="new-up-name" placeholder="Display name"></label>
+            <label>Space URL or UID <input id="new-up-space" placeholder="https://space.bilibili.com/12345"></label>
+            <button id="add-up">Add and Select</button>
+          </div>
+        </details>
+      </details>
+    </aside>
+    <div class="work">
+      <div id="page-feedback" class="progress" role="status" aria-live="polite" hidden></div>
+      <section class="selection-card" hidden>
+        <h2>Video Selection</h2>
+        <div class="grid">
+          <label>Selection mode
+            <select id="selection-kind">
+              <option value="position">Published-time number range</option>
+              <option value="published">Published time range</option>
+              <option value="metric">Metric value range</option>
+            </select>
+          </label>
+          <div id="selection-position" class="row">
+            <label>Start number <input id="position-start" type="number" min="1" value="1"></label>
+            <label>End number <input id="position-end" type="number" min="1" value="20"></label>
+          </div>
+          <div id="selection-published" class="row" hidden>
+            <label>Start time <input id="published-start" placeholder="2026-01-01"></label>
+            <label>End time <input id="published-end" placeholder="2026-06-05"></label>
+          </div>
+          <div id="selection-metric" class="row" hidden>
+            <label>Metric <select id="metric-field"></select></label>
+            <label>Greater than <input id="metric-min" placeholder="100k"></label>
+            <label>Less than <input id="metric-max" placeholder="200k"></label>
+          </div>
+        </div>
+        <div id="progress" class="progress" role="status" hidden>Idle.</div>
+      </section>
+      <section id="panel-up" class="panel active">
+        <div class="page-heading"><h2>UP Detail</h2><button id="load-up-detail" class="primary">View Selected UP Detail</button></div>
+        <div id="up-detail-result" class="detail-box"></div>
+      </section>
+      <section id="panel-single-video" class="panel">
+        <div class="page-heading"><h2>Single Video Lookup</h2></div>
+        <div class="row single-video-form">
+          <label>Video link or BV ID
+            <input id="single-video-input" placeholder="https://www.bilibili.com/video/BV..." autocomplete="off">
+          </label>
+          <button id="lookup-single-video" class="primary">Look Up Video</button>
+        </div>
+        <div id="single-video-progress" class="progress panel-progress" role="status" aria-live="polite" hidden>Idle.</div>
+        <div id="single-video-result" class="result" aria-live="polite"></div>
+      </section>
+      <section id="panel-videos" class="panel">
+        <div class="page-heading"><h2>Videos</h2></div>
+        <div class="selection-slot"></div>
+        <button id="list-videos" class="primary">List Videos</button>
+        <div id="videos-progress" class="progress panel-progress" role="status" hidden></div>
+        <div id="videos-result" class="result"></div>
+      </section>
+      <section id="panel-analysis" class="panel">
+        <div class="page-heading"><h2>Analysis</h2></div>
+        <div class="selection-slot"></div>
+        <button id="run-analysis" class="primary">Calculate Mean and Median</button>
+        <div id="analysis-progress" class="progress panel-progress" role="status" hidden></div>
+        <div id="analysis-result" class="result"></div>
+      </section>
+      <section id="panel-division" class="panel">
+        <div class="page-heading"><h2>Division</h2></div>
+        <div class="selection-slot"></div>
+        <div class="row controls">
+          <label>Mode
+            <select id="division-mode">
+              <option value="single">Ratio for every selected video</option>
+              <option value="aggregate">One ratio for all selected videos</option>
+            </select>
+          </label>
+          <label>Numerator <select id="division-numerator"></select></label>
+          <label>Denominator <select id="division-denominator"></select></label>
+        </div>
+        <button id="run-division" class="primary">Calculate Division</button>
+        <div id="division-progress" class="progress panel-progress" role="status" hidden></div>
+        <div id="division-result" class="result"></div>
+      </section>
+      <section id="panel-plot" class="panel">
+        <div class="page-heading"><h2>Plot</h2></div>
+        <div class="selection-slot"></div>
+        <div class="row controls">
+          <label>Plot mode
+            <select id="plot-mode">
+              <option value="field">One video metric</option>
+              <option value="quotient">Quotient</option>
+            </select>
+          </label>
+          <label class="plot-field-control">Video metric <select id="plot-field"></select></label>
+          <label class="plot-quotient-control" hidden>Numerator <select id="plot-numerator"></select></label>
+          <label class="plot-quotient-control" hidden>Denominator <select id="plot-denominator"></select></label>
+        </div>
+        <button id="run-plot" class="primary">Plot Selected Videos</button>
+        <div id="plot-progress" class="progress panel-progress" role="status" aria-live="polite" hidden>Idle.</div>
+        <div id="plot-chart" class="chart" tabindex="0" aria-label="Chart"></div>
+        <div id="plot-result" class="result"></div>
+      </section>
+      <section id="panel-saved-plots" class="panel">
+        <div class="page-heading"><h2>Saved Plots</h2></div>
+        <div id="plots"></div>
+      </section>
+      <section id="panel-settings" class="panel">
+        <div class="page-heading"><h2>Settings</h2></div>
+        <div class="settings-columns">
+          <div>
+            <h3>Sign In</h3>
+            <div class="row">
+              <button id="start-qr" class="primary">Start QR Sign In</button>
+              <button id="check-qr">Check QR Status</button>
+              <button id="use-guest">Use Guest Mode</button>
+            </div>
+            <div id="qr-result" class="result"></div>
+          </div>
+          <div>
+            <h3>Requests</h3>
+            <div class="row">
+              <label>Requests per second <input id="request-frequency" type="number" min="0.1" step="0.1" value="4"></label>
+              <button id="set-frequency">Set Frequency</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-group">
+          <h3>Cached Accounts</h3>
+          <div id="accounts-result" class="result"></div>
+        </div>
+        <div class="settings-group">
+          <div class="page-heading"><h3>Account Detail</h3><button id="load-account">View Account Detail</button></div>
+          <div id="account-result" class="detail-box"></div>
+        </div>
+        <div class="settings-group">
+          <h3>Sign Out &amp; Cache</h3>
+          <div class="row">
+            <button id="sign-out-keep">Sign Out, Keep Cache</button>
+            <button id="sign-out-selected" class="danger">Remove Selected Cache</button>
+            <button id="sign-out-all" class="danger">Remove All Caches</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

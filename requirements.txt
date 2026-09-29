@@ -1,0 +1,6 @@
+# Versions used by the existing project environment.
+bilibili-api-python==17.4.1
+httpx==0.28.1
+matplotlib==3.10.9
+qrcode[pil]==8.2
+Pillow==12.2.0

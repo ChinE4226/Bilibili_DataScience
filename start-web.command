@@ -32,5 +32,5 @@ if ! command -v "$PY" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "Starting web_server.py. It will use http://127.0.0.1:8000 or the next free port."
-"$PY" -u "$WEB_SCRIPT" --host 127.0.0.1 --port 8000 --open-browser --browser chrome
+echo "Starting web_server.py with automatic reload. It will use http://127.0.0.1:8000 or the next free port."
+"$PY" -u "$WEB_SCRIPT" --host 127.0.0.1 --port 8000 --open-browser --browser chrome "$@"
