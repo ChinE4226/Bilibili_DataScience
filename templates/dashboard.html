@@ -12,38 +12,48 @@
     <h1>Bilibili Data Science</h1>
     <div id="status" class="muted">Loading...</div>
   </header>
-  <nav aria-label="Main navigation">
-    <button data-panel="up" aria-current="page">UP Detail</button>
-    <button data-panel="single-video">Single Video</button>
-    <button data-panel="videos">Videos</button>
-    <button data-panel="analysis">Analysis</button>
-    <button data-panel="division">Division</button>
-    <button data-panel="plot">Plot</button>
-    <button data-panel="saved-plots">Saved Plots</button>
-    <button class="nav-settings" data-panel="settings">Settings</button>
+  <nav class="main-nav" aria-label="Main navigation">
+    <button data-section="explore">Explore</button>
+    <button data-section="workspace" aria-current="page">Workspace</button>
+    <button data-section="settings">Settings</button>
   </nav>
   <main>
-    <aside class="stack" aria-label="UP library">
-      <details id="up-picker" class="up-picker" open>
-        <summary>UP Library <span id="selected" class="muted">Loading...</span></summary>
-        <div class="grid">
-          <label>Search saved UPs <input id="up-search" placeholder="Name or UID"></label>
-          <div id="ups" class="up-list"></div>
-        </div>
-        <details class="add-up">
-          <summary>Add UP</summary>
-          <div class="grid">
-            <label>Name <input id="new-up-name" placeholder="Display name"></label>
-            <label>Space URL or UID <input id="new-up-space" placeholder="https://space.bilibili.com/12345"></label>
-            <button id="add-up">Add and Select</button>
-          </div>
-        </details>
-      </details>
-    </aside>
     <div class="work">
       <div id="page-feedback" class="progress" role="status" aria-live="polite" hidden></div>
-      <section class="selection-card" hidden>
-        <h2>Video Selection</h2>
+      <div class="workspace-heading">
+        <div><p id="section-eyebrow" class="eyebrow">COLLECT · UNDERSTAND · COMPARE</p><h2 id="section-title">Workspace</h2>
+        <p id="section-description" class="muted">One dataset, several ways to explore it. Fetch once, then work locally.</p></div>
+      </div>
+      <div class="workspace-tool-row">
+      <nav class="tool-nav" aria-label="Workspace tools" data-tools="workspace">
+        <button data-panel="videos" aria-current="page">Dataset</button>
+        <button data-panel="analysis">Statistics</button>
+        <button data-panel="division">Ratios</button>
+        <button data-panel="plot">Charts</button>
+        <button data-panel="saved-plots">Saved charts</button>
+      </nav>
+      <nav class="tool-nav" aria-label="Explore tools" data-tools="explore" hidden>
+        <button data-panel="creators">Creators</button>
+        <button data-panel="creator">Creator profile</button>
+        <button data-panel="single-video">Single video</button>
+      </nav>
+          <div class="creator-switcher">
+            <button id="open-library" type="button" aria-expanded="false" aria-controls="creator-menu">Choose creator</button>
+            <div id="creator-menu" class="creator-menu" hidden>
+              <label>Find a creator <input id="creator-search" type="search" placeholder="Name or UID" autocomplete="off"></label>
+              <div id="creator-menu-feedback" class="progress" role="status" aria-live="polite" hidden></div>
+              <div id="creator-options" class="creator-options"></div>
+              <button id="manage-creators" type="button">Add / manage creators</button>
+            </div>
+          </div>
+      </div>
+      <div class="menu-history"><button id="menu-back" type="button" hidden>← Back</button><span id="menu-back-hint" class="muted" hidden>Click unused page space to go back.</span></div>
+      <section class="selection-card" aria-label="Working dataset">
+        <div class="dataset-heading"><div><h2>Working dataset</h2>
+        <p id="dataset-status" class="muted" role="status">Choose a creator and video range, then fetch your dataset.</p></div>
+        <button id="fetch-dataset" type="button" class="primary">Fetch / Refresh</button></div>
+        <details id="dataset-source" open>
+        <summary>1. Collection range <span class="muted">· Fetch from Bilibili</span></summary>
         <div class="grid">
           <label>Selection mode
             <select id="selection-kind">
@@ -66,11 +76,32 @@
             <label>Less than <input id="metric-max" placeholder="200k"></label>
           </div>
         </div>
+        </details>
+        <details id="dataset-filters">
+        <summary>2. Filter dataset <span id="filter-summary" class="muted">· All fetched rows</span></summary>
+        <div class="row"><label>Minimum views (inclusive)<input id="local-min-views" type="number" min="0" step="1" placeholder="No minimum"></label><label>Maximum views (inclusive)<input id="local-max-views" type="number" min="0" step="1" placeholder="No maximum"></label></div>
+        <p class="muted">Local filters apply to the fetched selection without requests. Leave blank to include all fetched rows.</p>
+        </details>
+        <p class="dataset-help muted">Changing creator, account, or collection range requires a new fetch. Filters reuse the loaded rows. Restarting clears the dataset.</p>
         <div id="progress" class="progress" role="status" hidden>Idle.</div>
       </section>
-      <section id="panel-up" class="panel active">
-        <div class="page-heading"><h2>UP Detail</h2><button id="load-up-detail" class="primary">View Selected UP Detail</button></div>
-        <div id="up-detail-result" class="detail-box"></div>
+      <section id="panel-creators" class="panel">
+        <div class="page-heading"><div><h2>Creators</h2><p class="muted">Find, select, or add a creator for your workspace.</p></div></div>
+        <p id="selected" class="muted" role="status">No creator selected.</p>
+        <label>Search saved creators <input id="creator-library-search" type="search" placeholder="Name or UID"></label>
+        <div id="creators" class="creator-list"></div>
+        <details id="add-creator-form" class="add-creator">
+          <summary>Add creator</summary>
+          <div class="grid">
+            <label>Name <input id="new-creator-name" placeholder="Display name"></label>
+            <label>Space URL or UID <input id="new-creator-space" placeholder="https://space.bilibili.com/12345"></label>
+            <button id="add-creator">Add and Select</button>
+          </div>
+        </details>
+      </section>
+      <section id="panel-creator" class="panel">
+        <div class="page-heading"><h2>Creator profile</h2><button id="load-creator-detail" class="primary">View Selected Creator Detail</button></div>
+        <div id="creator-detail-result" class="detail-box"></div>
       </section>
       <section id="panel-single-video" class="panel">
         <div class="page-heading"><h2>Single Video Lookup</h2></div>
@@ -78,28 +109,26 @@
           <label>Video link or BV ID
             <input id="single-video-input" placeholder="https://www.bilibili.com/video/BV..." autocomplete="off">
           </label>
-          <button id="lookup-single-video" class="primary">Look Up Video</button>
+          <button id="lookup-single-video" class="primary">Fetch Video</button>
         </div>
         <div id="single-video-progress" class="progress panel-progress" role="status" aria-live="polite" hidden>Idle.</div>
         <div id="single-video-result" class="result" aria-live="polite"></div>
       </section>
-      <section id="panel-videos" class="panel">
-        <div class="page-heading"><h2>Videos</h2></div>
-        <div class="selection-slot"></div>
-        <button id="list-videos" class="primary">List Videos</button>
+      <section id="panel-videos" class="panel active">
+        <div class="page-heading"><div><h2>Dataset rows</h2><p class="muted">Inspect the videos included in your current selection.</p></div></div>
+        <button id="list-videos" class="primary">Apply Filters / Show Rows</button>
         <div id="videos-progress" class="progress panel-progress" role="status" hidden></div>
         <div id="videos-result" class="result"></div>
       </section>
       <section id="panel-analysis" class="panel">
-        <div class="page-heading"><h2>Analysis</h2></div>
-        <div class="selection-slot"></div>
-        <button id="run-analysis" class="primary">Calculate Mean and Median</button>
+        <div class="page-heading"><div><h2>Statistics &amp; engagement</h2><p class="muted">Understand the distribution, spot unusual results, and compare interaction ratios.</p></div></div>
+        <div class="row controls"><label>Distribution metric <select id="analysis-field"></select></label>
+        <button id="run-analysis" class="primary">Analyze Dataset</button></div>
         <div id="analysis-progress" class="progress panel-progress" role="status" hidden></div>
         <div id="analysis-result" class="result"></div>
       </section>
       <section id="panel-division" class="panel">
-        <div class="page-heading"><h2>Division</h2></div>
-        <div class="selection-slot"></div>
+        <div class="page-heading"><div><h2>Custom ratios</h2><p class="muted">Compare two metrics per video or across eligible rows.</p></div></div>
         <div class="row controls">
           <label>Mode
             <select id="division-mode">
@@ -110,13 +139,12 @@
           <label>Numerator <select id="division-numerator"></select></label>
           <label>Denominator <select id="division-denominator"></select></label>
         </div>
-        <button id="run-division" class="primary">Calculate Division</button>
+        <button id="run-division" class="primary">Calculate Ratio</button>
         <div id="division-progress" class="progress panel-progress" role="status" hidden></div>
         <div id="division-result" class="result"></div>
       </section>
       <section id="panel-plot" class="panel">
-        <div class="page-heading"><h2>Plot</h2></div>
-        <div class="selection-slot"></div>
+        <div class="page-heading"><div><h2>Charts</h2><p class="muted">Explore metrics by publication date and save a chart when you need it.</p></div></div>
         <div class="row controls">
           <label>Plot mode
             <select id="plot-mode">
@@ -130,11 +158,35 @@
         </div>
         <button id="run-plot" class="primary">Plot Selected Videos</button>
         <div id="plot-progress" class="progress panel-progress" role="status" aria-live="polite" hidden>Idle.</div>
-        <div id="plot-chart" class="chart" tabindex="0" aria-label="Chart"></div>
-        <div id="plot-result" class="result"></div>
+        <div id="plot-workspace" hidden>
+          <div class="plot-heading">
+            <div><h3 id="plot-title">Plot</h3><p id="plot-context" class="muted"></p></div>
+            <button id="save-plot" title="Save the full plot to Saved Plots" disabled><span data-plot-icon="save"></span>Save PNG</button>
+          </div>
+          <p id="plot-save-status" class="muted" role="status"></p>
+          <dl id="plot-summary" class="plot-summary"></dl>
+          <div class="plot-toolbar">
+            <div class="plot-ranges" role="group" aria-label="Published-time range">
+              <button data-plot-range="30" aria-pressed="false" disabled>1M</button>
+              <button data-plot-range="90" aria-pressed="false" disabled>3M</button>
+              <button data-plot-range="365" aria-pressed="false" disabled>1Y</button>
+              <button data-plot-range="all" aria-pressed="true" disabled>All</button>
+            </div>
+            <select id="plot-style" aria-label="Chart style"><option value="line">Line</option><option value="bar">Bars</option></select>
+            <div class="plot-tools" role="group" aria-label="Chart tools">
+              <button id="plot-zoom-in" class="icon-button" title="Zoom in" aria-label="Zoom in" disabled><span data-plot-icon="zoom-in"></span></button>
+              <button id="plot-zoom-out" class="icon-button" title="Zoom out" aria-label="Zoom out" disabled><span data-plot-icon="zoom-out"></span></button>
+              <button id="plot-reset" class="icon-button" title="Reset chart range" aria-label="Reset chart range" disabled><span data-plot-icon="reset"></span></button>
+              <button id="download-plot" class="icon-button" title="Download current chart view" aria-label="Download current chart view" disabled><span data-plot-icon="download"></span></button>
+            </div>
+          </div>
+          <div id="plot-chart" class="chart" tabindex="0" aria-label="Chart"></div>
+          <div id="plot-inspection" class="plot-inspection"></div>
+        </div>
+        <details class="plot-data"><summary id="plot-data-label">Data</summary><div id="plot-result" class="result"></div></details>
       </section>
       <section id="panel-saved-plots" class="panel">
-        <div class="page-heading"><h2>Saved Plots</h2></div>
+        <div class="page-heading"><h2>Saved charts</h2></div>
         <div id="plots"></div>
       </section>
       <section id="panel-settings" class="panel">

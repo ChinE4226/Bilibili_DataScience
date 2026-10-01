@@ -45,7 +45,7 @@ export function renderVideos(target, videos) {
 export async function lookupSingleVideo() {
   const input = document.getElementById("single-video-input");
   const result = document.getElementById("single-video-result");
-  startProgressPolling("Looking up video", "single-video-progress");
+  startProgressPolling("Fetching video", "single-video-progress");
   result.innerHTML = "";
   try {
     const data = await postJSON("/api/video-lookup", { video: input.value });

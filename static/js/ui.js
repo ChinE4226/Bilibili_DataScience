@@ -1,30 +1,35 @@
 import { uiState } from "./state.js";
 
-export async function performAction(button, task) {
+export async function performAction(button, task, { showProgress = true, disableAll = true } = {}) {
   if (uiState.actionBusy) return;
   uiState.actionBusy = true;
-  const feedback = document.getElementById("page-feedback");
-  feedback.hidden = false;
+  const feedback = document.getElementById(document.getElementById("creator-menu").hidden ? "page-feedback" : "creator-menu-feedback");
+  feedback.hidden = !showProgress;
   feedback.classList.remove("error-message");
   feedback.textContent = `${button.textContent.trim()}...`;
-  const states = [...document.querySelectorAll("button:not([data-panel])")]
+  const restoreFocus = !disableAll && document.activeElement === button;
+  const states = (disableAll ? [...document.querySelectorAll("button:not([data-panel]):not([data-section])")] : [button])
     .map((item) => [item, item.disabled]);
   states.forEach(([item]) => { item.disabled = true; });
   try {
     await task();
     feedback.hidden = true;
   } catch (error) {
+    feedback.hidden = false;
     feedback.textContent = error.message;
     feedback.classList.add("error-message");
   } finally {
     states.forEach(([item, disabled]) => { item.disabled = disabled; });
+    if (restoreFocus && document.activeElement === document.body && button.isConnected) {
+      button.focus({ preventScroll: true });
+    }
     uiState.actionBusy = false;
   }
 }
 
-export function bindAction(id, task) {
+export function bindAction(id, task, onSettled) {
   const button = document.getElementById(id);
-  button.addEventListener("click", () => performAction(button, task));
+  button.addEventListener("click", () => performAction(button, task).finally(() => onSettled?.()));
 }
 
 export function formatBytes(value) {

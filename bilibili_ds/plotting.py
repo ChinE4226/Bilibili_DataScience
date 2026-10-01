@@ -1,6 +1,7 @@
 """Headless plot preparation and PNG rendering."""
 
 from datetime import datetime
+import math
 import os
 from pathlib import Path
 import re
@@ -24,12 +25,31 @@ from matplotlib import dates as mdates
 from matplotlib import ticker
 
 
-def plot_file_path(selected_up: dict[str, str], plot_label: str) -> Path:
+def nice_y_axis(values: list[float]) -> tuple[float, float]:
+    """Zero-based upper bound and a round 1/2/5 tick interval."""
+    peak = max((value for value in values if math.isfinite(value) and value >= 0), default=0)
+    target = peak * 1.08 if peak else 1.0
+    raw_step = target / 5
+    magnitude = 10 ** math.floor(math.log10(raw_step))
+    step = next(factor * magnitude for factor in (1, 2, 5, 10) if factor * magnitude >= raw_step)
+    return math.ceil(target / step) * step, step
+
+
+def configure_y_axis(axis: Any, values: list[float]) -> None:
+    upper, step = nice_y_axis(values)
+    axis.set_ylim(0, upper)
+    axis.yaxis.set_major_locator(ticker.MultipleLocator(step))
+    axis.yaxis.set_major_formatter(ticker.FuncFormatter(
+        lambda value, position: f"{value:,.12f}".rstrip("0").rstrip(".")
+    ))
+
+
+def plot_file_path(selected_creator: dict[str, str], plot_label: str) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_up_name = re.sub(r"[^\w.-]+", "_", selected_up.get("name", ""), flags=re.UNICODE).strip("_")[:40]
-    up_part = f"{safe_up_name}_{selected_up['uid']}" if safe_up_name else selected_up["uid"]
+    safe_creator_name = re.sub(r"[^\w.-]+", "_", selected_creator.get("name", ""), flags=re.UNICODE).strip("_")[:40]
+    creator_part = f"{safe_creator_name}_{selected_creator['uid']}" if safe_creator_name else selected_creator["uid"]
     safe_label = re.sub(r"[^\w.-]+", "_", plot_label, flags=re.UNICODE).strip("_")[:80] or "plot"
-    return config.PLOTS_DIR / f"{up_part}_{timestamp}_{safe_label}.png"
+    return config.PLOTS_DIR / f"{creator_part}_{timestamp}_{safe_label}.png"
 
 
 def build_plot_points(
@@ -54,7 +74,7 @@ def build_plot_points(
 
 def save_line_plot(
     *,
-    selected_up: dict[str, str],
+    selected_creator: dict[str, str],
     selection_label: str,
     plot_label: str,
     y_label: str,
@@ -62,22 +82,16 @@ def save_line_plot(
     y_values: list[float],
 ) -> Path:
     config.PLOTS_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = plot_file_path(selected_up, plot_label)
-    y_min = min(y_values)
-    y_max = max(y_values)
-    y_spread = y_max - y_min
-    y_pad = max(y_spread * 0.12, abs(y_max) * 0.03, 1.0) if y_spread else max(abs(y_max) * 0.12, 1.0)
+    output_path = plot_file_path(selected_creator, plot_label)
 
     figure, axis = plt.subplots(figsize=(13, 7))
     axis.plot(x_values, y_values, marker="o", linewidth=2.0, markersize=4.5)
-    axis.set_title(f"{selected_up['name']} - {plot_label}")
+    axis.set_title(f"{selected_creator['name']} - {plot_label}")
     axis.set_xlabel("Published time")
     axis.set_ylabel(y_label)
-    axis.set_ylim(y_min - y_pad, y_max + y_pad)
+    configure_y_axis(axis, y_values)
     axis.margins(x=0.03)
     axis.grid(True, linewidth=0.5, alpha=0.5)
-    axis.yaxis.set_major_locator(ticker.MaxNLocator(nbins=7))
-    axis.yaxis.set_major_formatter(ticker.StrMethodFormatter("{x:,.2f}"))
     axis.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=8))
     axis.xaxis.set_major_formatter(mdates.ConciseDateFormatter(axis.xaxis.get_major_locator()))
     axis.text(

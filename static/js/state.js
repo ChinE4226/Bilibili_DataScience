@@ -1,1 +1,1 @@
-export const uiState = { savedUPs: [], selectedUP: null, actionBusy: false };
+export const uiState = { savedCreators: [], selectedCreator: null, actionBusy: false };

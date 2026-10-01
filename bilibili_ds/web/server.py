@@ -10,11 +10,18 @@ import webbrowser
 from bilibili_ds.web.routes import BilibiliDataScienceHandler
 
 
+class DashboardHTTPServer(ThreadingHTTPServer):
+    # Browsers request the module graph in bursts; the default backlog of five
+    # can reset local asset connections while the worker is accepting them.
+    request_queue_size = 64
+
+
 def create_server(host: str, start_port: int, retries: int) -> tuple[ThreadingHTTPServer, int]:
     last_error: OSError | None = None
     for port in range(start_port, start_port + max(retries, 0) + 1):
         try:
-            return ThreadingHTTPServer((host, port), BilibiliDataScienceHandler), port
+            server = DashboardHTTPServer((host, port), BilibiliDataScienceHandler)
+            return server, server.server_port
         except OSError as exc:
             last_error = exc
             if exc.errno not in (48, 98, 10048):

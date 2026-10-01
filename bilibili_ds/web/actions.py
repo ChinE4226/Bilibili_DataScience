@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from bilibili_ds.web.creators import selected_up
-from bilibili_ds.web.plots import save_web_plot_png
+from bilibili_ds.distributions import analyse_dataset, metric
+from bilibili_ds.web import dataset
+from bilibili_ds.web.creators import selected_creator
+from bilibili_ds.web.plots import prepare_plot
 from bilibili_ds.web.progress import set_progress
 from bilibili_ds.web.serializers import (
-    analyse_items,
     field_by_name,
     field_value,
     ratio_value,
@@ -18,16 +19,47 @@ from bilibili_ds.web.videos import fetch_followers, fetch_selected_video_items
 
 
 async def execute_video_action(payload: dict[str, Any]) -> dict[str, Any]:
+    if not dataset.LOCK.acquire(blocking=False):
+        raise ValueError("Another video operation is running. Try again when it finishes.")
+    try:
+        return await _execute_video_action(payload)
+    finally:
+        dataset.LOCK.release()
+
+
+async def _execute_video_action(payload: dict[str, Any]) -> dict[str, Any]:
     action = str(payload.get("action") or "")
     set_progress(f"Starting {action or 'video'} action.", running=True, percent=1, count=0)
     try:
-        items, selection_label, total = await fetch_selected_video_items(payload)
+        if action not in {"list", "analysis", "division", "plot"}:
+            raise ValueError("Invalid action.")
+        (items, selection_label, total), metadata = await dataset.acquire(payload, fetch_selected_video_items)
+        local = payload.get("local_filter") or {}
+        lower, upper = local.get("minimum_views"), local.get("maximum_views")
+        def boundary(value):
+            if value in (None, ""):
+                return None
+            try:
+                parsed = int(str(value))
+            except (TypeError, ValueError):
+                raise ValueError("Local view boundaries must be nonnegative whole numbers.") from None
+            if parsed < 0:
+                raise ValueError("Local view boundaries must be nonnegative whole numbers.")
+            return parsed
+        lower, upper = boundary(lower), boundary(upper)
+        if lower is not None and upper is not None and lower > upper:
+            raise ValueError("Minimum views must not exceed maximum views.")
+        if lower is not None or upper is not None:
+            items = [item for item in items if (value := metric(item, "view")) is not None
+                     and (lower is None or value >= lower) and (upper is None or value <= upper)]
+            selection_label += f"; local views {lower if lower is not None else 0}–{upper if upper is not None else 'unlimited'}"
         serialized = [serialize_video(item) for item in items]
 
         if action == "list":
             set_progress(f"List completed. Selected {len(items)} video(s).", running=False, percent=100, count=len(items))
             return {
                 "action": action,
+                "dataset": metadata,
                 "selection": selection_label,
                 "total_videos": total,
                 "count": len(items),
@@ -35,12 +67,13 @@ async def execute_video_action(payload: dict[str, Any]) -> dict[str, Any]:
             }
 
         if action == "analysis":
-            set_progress("Calculating mean and median.", percent=95, count=len(items))
+            set_progress("Calculating distributions and engagement.", percent=95, count=len(items))
             result = {
                 "action": action,
+                "dataset": metadata,
                 "selection": selection_label,
                 "count": len(items),
-                "summaries": analyse_items(items),
+                **analyse_dataset(items),
             }
             set_progress(f"Analysis completed. Selected {len(items)} video(s).", running=False, percent=100, count=len(items))
             return result
@@ -51,7 +84,7 @@ async def execute_video_action(payload: dict[str, Any]) -> dict[str, Any]:
             if numerator is None or denominator is None:
                 raise ValueError("Invalid numerator or denominator.")
             if "followers" in {numerator["field"], denominator["field"]}:
-                set_progress("Fetching selected UP follower count.", percent=92, count=len(items))
+                set_progress("Fetching selected Creator follower count.", percent=92, count=len(items))
                 followers = await fetch_followers()
             else:
                 followers = None
@@ -62,14 +95,18 @@ async def execute_video_action(payload: dict[str, Any]) -> dict[str, Any]:
                 if mode == "aggregate":
                     numerator_values = [field_value(item, numerator, followers) for item in items]
                     denominator_values = [field_value(item, denominator, followers) for item in items]
-                    numerator_total = sum(value for value in numerator_values if value is not None)
-                    denominator_total = sum(value for value in denominator_values if value is not None)
+                    pairs = [(a, b) for a, b in zip(numerator_values, denominator_values) if a is not None and b is not None and a >= 0 and b > 0]
+                    numerator_total = sum(a for a, b in pairs)
+                    denominator_total = sum(b for a, b in pairs)
                     ratio = None if denominator_total == 0 else numerator_total / denominator_total
                     result = {
                         "action": action,
+                        "dataset": metadata,
                         "mode": mode,
                         "selection": selection_label,
                         "count": len(items),
+                        "eligible_count": len(pairs),
+                        "excluded_count": len(items) - len(pairs),
                         "numerator_total": numerator_total,
                         "denominator_total": denominator_total,
                         "ratio": ratio,
@@ -92,6 +129,7 @@ async def execute_video_action(payload: dict[str, Any]) -> dict[str, Any]:
                     )
                 result = {
                     "action": action,
+                    "dataset": metadata,
                     "mode": mode,
                     "selection": selection_label,
                     "count": len(items),
@@ -134,15 +172,17 @@ async def execute_video_action(payload: dict[str, Any]) -> dict[str, Any]:
                             "value": value,
                         }
                     )
-            selected = selected_up()
-            plot_file = save_web_plot_png(selected, selection_label, plot_label, y_label, points) if selected else None
+            selected = selected_creator()
+            plot_id = prepare_plot(selected, selection_label, plot_label, y_label, points) if selected else None
             set_progress(f"Plot completed. Selected {len(items)} video(s), plotted {len(points)} point(s).", running=False, percent=100, count=len(items))
             return {
                 "action": action,
+                "dataset": metadata,
                 "selection": selection_label,
                 "count": len(items),
                 "points": points,
-                "plot_file": plot_file,
+                "plot_id": plot_id,
+                "selected_creator": selected,
                 "plot_label": plot_label,
                 "y_label": y_label,
             }

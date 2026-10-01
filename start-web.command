@@ -32,5 +32,12 @@ if ! command -v "$PY" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "Starting web_server.py with automatic reload. It will use http://127.0.0.1:8000 or the next free port."
-"$PY" -u "$WEB_SCRIPT" --host 127.0.0.1 --port 8000 --open-browser --browser chrome "$@"
+echo "Starting Bilibili Data Science with automatic reload."
+echo "The website will open at http://127.0.0.1:8000 or the next free port."
+echo "Keep this Terminal window open while using the website."
+echo "To stop the server, click this Terminal window and press Control+C."
+echo "You can close ChatGPT; this Terminal runs the server independently."
+echo ""
+
+# Keep the server in Terminal's foreground, with no detached background process.
+exec "$PY" -u "$WEB_SCRIPT" --host 127.0.0.1 --port 8000 --open-browser --browser chrome "$@"

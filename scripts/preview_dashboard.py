@@ -2,17 +2,19 @@
 
 import argparse
 import io
+from datetime import datetime, timedelta
 from pathlib import Path
 import sys
-from http.server import ThreadingHTTPServer
 from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from bilibili_ds.distributions import analyse_dataset
 from bilibili_ds.plotting import plt
 from bilibili_ds.web.assets import dashboard_html
 from bilibili_ds.web.http import read_json_body
 from bilibili_ds.web.routes import BilibiliDataScienceHandler
 from bilibili_ds.web.serializers import VIDEO_FIELDS, extract_bvid
+from bilibili_ds.web.server import DashboardHTTPServer
 
 
 VIDEO = {
@@ -25,8 +27,9 @@ VIDEO = {
     "description": "Sample description for layout verification.\n" + "LongUnbrokenText" * 15,
 }
 VIDEOS = [dict(VIDEO, title=f"{index + 1}. {VIDEO['title']}") for index in range(24)]
-UP = {"name": "Sample uploader", "uid": "123456"}
-POINTS = [{"title": f"Video {i + 1}", "label": f"2026-09-{i + 1:02d}", "value": 100 + 15 * i} for i in range(8)]
+CREATOR = {"name": "Sample uploader", "uid": "123456"}
+POINTS = [{"title": f"Video {i + 1}: sample metric history", "label": (datetime(2026, 3, 1) + timedelta(days=i * 3)).strftime("%Y-%m-%d %H:%M:%S"),
+           "value": 18000 + ((i * 7919) % 43000) + i * 300} for i in range(64)]
 figure, axis = plt.subplots(figsize=(13, 7))
 axis.plot([point["label"] for point in POINTS], [point["value"] for point in POINTS])
 axis.set_xlabel("Published time")
@@ -39,6 +42,8 @@ PNG = buffer.getvalue()
 
 
 class PreviewHandler(BilibiliDataScienceHandler):
+    saved = False
+
     def do_GET(self):
         path = urlparse(self.path).path
         if path == "/":
@@ -51,13 +56,13 @@ class PreviewHandler(BilibiliDataScienceHandler):
             self.send_bytes(PNG, "image/png")
             return
         fixtures = {
-            "/api/health": {"account": "Layout preview (sample data)", "selected_up": UP, "request_frequency": 4},
-            "/api/ups": {"ups": [UP, {"name": "Another uploader with a longer name", "uid": "987654"}]},
+            "/api/health": {"account": "Layout preview (sample data)", "selected_creator": CREATOR, "request_frequency": 4},
+            "/api/creators": {"creators": [CREATOR, {"name": "Another uploader with a longer name", "uid": "987654"}]},
             "/api/accounts": {"accounts": [{"name": "Sample account", "uid": "555555", "id": "sample", "source": "qr", "active": True}]},
-            "/api/plots": {"plots": [{"url": "/plots/sample.png", "name": "Sample_views_by_published_time.png", "size": len(PNG)}]},
+            "/api/plots": {"plots": [{"url": "/plots/sample.png", "name": "Sample_views_by_published_time.png", "size": len(PNG)}] if self.saved else []},
             "/api/progress": {"message": "Completed.", "running": False, "count": 24},
             "/api/account-detail": {"name": "Sample account", "mid": 555555, "level": 5, "coins": 34, "following": 120, "follower": 17, "sign": "Sample account signature"},
-            "/api/up-detail": {"selected": UP, "profile": {"name": UP["name"], "mid": 123456, "sign": "Long profile text " * 15, "upstat": {"archive": {"view": 123456789}, "likes": 654321}}, "relation": {"follower": 100000, "following": 45}, "video_total": 500},
+            "/api/creator-detail": {"selected": CREATOR, "profile": {"name": CREATOR["name"], "mid": 123456, "sign": "Long profile text " * 15, "upstat": {"archive": {"view": 123456789}, "likes": 654321}}, "relation": {"follower": 100000, "following": 45}, "video_total": 500},
         }
         if path in fixtures:
             self.send_json(fixtures[path])
@@ -76,11 +81,17 @@ class PreviewHandler(BilibiliDataScienceHandler):
             self.send_json({"video": VIDEO})
         elif path == "/api/video-action":
             self.send_json({
-                "videos": VIDEOS, "points": POINTS, "y_label": "Views", "plot_file": "sample.png",
+                "videos": VIDEOS, "points": POINTS, "y_label": "Views", "plot_id": "sample", "selected_creator": CREATOR, "selection": "All videos",
                 "mode": data.get("mode"), "numerator_total": 24001, "denominator_total": 1200034, "ratio": 0.02,
                 "rows": [{"title": item["title"], "published_time": item["published_time"], "numerator": 24001, "denominator": 1200034, "ratio": 0.02} for item in VIDEOS],
-                "summaries": [{"label": field["label"], "count": 24, "mean": 1234.5, "median": 1200} for field in VIDEO_FIELDS],
+                **analyse_dataset([{"title": item["title"], "bvid": f"sample-{i}",
+                    "stat": {field["stat_key"]: (i + 1) * 100 if field["field"] == "views" else i * 2 for field in VIDEO_FIELDS}}
+                    for i, item in enumerate(VIDEOS)]),
+                "dataset": {"count": 24, "selection": "Sample selection", "started_at": "2026-09-30T00:00:00Z", "collected_at": "2026-09-30T00:00:10Z", "reused": not data.get("refresh")},
             })
+        elif path == "/api/plots/save" and data.get("plot_id") == "sample":
+            type(self).saved = True
+            self.send_json({"name": "sample.png", "url": "/plots/sample.png"})
         else:
             self.send_error_json(400, "Sample error: this action is disabled in the layout preview.")
 
@@ -89,7 +100,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8012)
     args = parser.parse_args()
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), PreviewHandler)
+    server = DashboardHTTPServer(("127.0.0.1", args.port), PreviewHandler)
     print(f"Sample layout preview: http://127.0.0.1:{server.server_port}", flush=True)
     try:
         server.serve_forever()

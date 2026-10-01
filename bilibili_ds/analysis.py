@@ -52,24 +52,24 @@ def division_field_choices() -> list[dict[str, str]]:
         {
             "field": "followers",
             "label": "Followers",
-            "source": "up_relation",
+            "source": "creator_relation",
             "relation_key": "follower",
         }
     )
     return choices
 
 
-def division_needs_up_relation(*fields: dict[str, str]) -> bool:
-    return any(field.get("source") == "up_relation" for field in fields)
+def division_needs_creator_relation(*fields: dict[str, str]) -> bool:
+    return any(field.get("source") == "creator_relation" for field in fields)
 
 
 def division_field_value(
     item: dict[str, Any],
     field: dict[str, str],
-    up_relation: dict[str, Any] | None = None,
+    creator_relation: dict[str, Any] | None = None,
 ) -> int | None:
-    if field.get("source") == "up_relation":
-        return int_or_none((up_relation or {}).get(field["relation_key"]))
+    if field.get("source") == "creator_relation":
+        return int_or_none((creator_relation or {}).get(field["relation_key"]))
     return video_metric_value(item, field["stat_key"])
 
 
@@ -77,10 +77,10 @@ def ratio_for_item(
     item: dict[str, Any],
     numerator_field: dict[str, str],
     denominator_field: dict[str, str],
-    up_relation: dict[str, Any] | None = None,
+    creator_relation: dict[str, Any] | None = None,
 ) -> tuple[int | None, int | None, float | None]:
-    numerator = division_field_value(item, numerator_field, up_relation)
-    denominator = division_field_value(item, denominator_field, up_relation)
+    numerator = division_field_value(item, numerator_field, creator_relation)
+    denominator = division_field_value(item, denominator_field, creator_relation)
     if numerator is None or denominator in (None, 0):
         return numerator, denominator, None
     return numerator, denominator, numerator / denominator
@@ -89,10 +89,10 @@ def ratio_for_item(
 def aggregate_division_value(
     items: list[dict[str, Any]],
     field: dict[str, str],
-    up_relation: dict[str, Any] | None = None,
+    creator_relation: dict[str, Any] | None = None,
 ) -> dict[str, int | None]:
-    if field.get("source") == "up_relation":
-        value = division_field_value({}, field, up_relation)
+    if field.get("source") == "creator_relation":
+        value = division_field_value({}, field, creator_relation)
         selected_count = len(items)
         return {
             "value": None if value is None else value * selected_count,
@@ -105,7 +105,7 @@ def aggregate_division_value(
     count = 0
     missing = 0
     for item in items:
-        value = division_field_value(item, field, up_relation)
+        value = division_field_value(item, field, creator_relation)
         if value is None:
             missing += 1
             continue
@@ -116,7 +116,7 @@ def aggregate_division_value(
 
 
 def aggregate_division_label(field: dict[str, str], selected_count: int | None = None) -> str:
-    if field.get("source") == "up_relation":
+    if field.get("source") == "creator_relation":
         if selected_count is None:
             return field["label"]
         return f"{field['label']} x {selected_count} selected video(s)"

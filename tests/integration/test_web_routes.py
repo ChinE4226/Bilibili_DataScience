@@ -1,7 +1,6 @@
 """Local HTTP checks for routes, public assets, and shared settings."""
 
 from contextlib import ExitStack
-from http.server import ThreadingHTTPServer
 import json
 from pathlib import Path
 import tempfile
@@ -12,7 +11,8 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from bilibili_ds import config, state as settings
-from bilibili_ds.web import assets, routes, state
+from bilibili_ds.web import assets, plots, routes, state
+from bilibili_ds.web.server import DashboardHTTPServer
 
 
 class QuietHandler(routes.BilibiliDataScienceHandler):
@@ -25,13 +25,13 @@ class WebRouteTests(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         root = Path(self.stack.enter_context(tempfile.TemporaryDirectory()))
-        for name in ("UPS_FILE", "COOKIE_FILE", "QRCODE_FILE", "LEGACY_CREDENTIAL_FILE", "ACTIVE_ACCOUNT_FILE", "ACCOUNTS_DIR", "PLOTS_DIR"):
+        for name in ("CREATORS_FILE", "COOKIE_FILE", "QRCODE_FILE", "LEGACY_CREDENTIAL_FILE", "ACTIVE_ACCOUNT_FILE", "ACCOUNTS_DIR", "PLOTS_DIR"):
             self.stack.enter_context(patch.object(config, name, root / name.lower()))
         self.stack.enter_context(patch.object(settings, "REQUEST_FREQUENCY", 4.0))
         self.stack.enter_context(patch.object(state, "SELECTED_UID", None))
         self.stack.enter_context(patch.object(state, "RELOAD_TOKEN", "test-token"))
         self.stack.enter_context(patch.object(routes, "account_records_summary", return_value=[]))
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), QuietHandler)
+        self.server = DashboardHTTPServer(("127.0.0.1", 0), QuietHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.stack.callback(self.stop_server)
@@ -88,11 +88,11 @@ class WebRouteTests(unittest.TestCase):
         self.assertEqual(settings.REQUEST_FREQUENCY, 8)
         self.assertEqual(json.loads(self.request("/api/health")[2])["request_frequency"], 8)
         self.assertEqual(self.request("/api/request-frequency", {"value": 0})[0], 400)
-        status, _, body = self.request("/api/ups/add", {"name": "Example", "space": "https://space.bilibili.com/42"})
+        status, _, body = self.request("/api/creators/add", {"name": "Example", "space": "https://space.bilibili.com/42"})
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body)["up"]["uid"], "42")
-        self.assertEqual(json.loads(self.request("/api/ups")[2])["selected_up"]["uid"], "42")
-        self.assertNotIn("selected_uid", json.loads(config.UPS_FILE.read_text()))
+        self.assertEqual(json.loads(body)["creator"]["uid"], "42")
+        self.assertEqual(json.loads(self.request("/api/creators")[2])["selected_creator"]["uid"], "42")
+        self.assertNotIn("selected_uid", json.loads(config.CREATORS_FILE.read_text()))
 
     def test_lookup_and_actions_use_expected_route_contracts(self):
         with patch.object(routes, "fetch_single_video", new_callable=AsyncMock, return_value={"bvid": "BV1xx411c7mD"}) as lookup:
@@ -105,4 +105,19 @@ class WebRouteTests(unittest.TestCase):
             self.assertEqual(self.request("/api/video-action", payload)[0], 200)
             action.assert_awaited_once_with(payload)
         self.assertEqual(self.request("/api/unknown", {})[0], 404)
-        self.assertEqual(self.request("/api/selected-up", {})[0], 400)
+        self.assertEqual(self.request("/api/selected-creator", {})[0], 400)
+
+    def test_plots_only_persist_after_explicit_save(self):
+        points = [{"title": "Example", "label": "2026-09-01 12:00:00", "value": 12345}]
+        plot_id = plots.prepare_plot({"name": "Example", "uid": "42"}, "all", "Views", "Views", points)
+        self.assertFalse(config.PLOTS_DIR.exists())
+        self.assertEqual(json.loads(self.request("/api/plots")[2]), {"plots": []})
+        status, _, body = self.request("/api/plots/save", {"plot_id": plot_id})
+        self.assertEqual(status, 200)
+        saved = json.loads(body)
+        self.assertEqual(len(list(config.PLOTS_DIR.glob("*.png"))), 1)
+        self.assertTrue(self.request(saved["url"])[2].startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertEqual(json.loads(self.request("/api/plots/save", {"plot_id": plot_id})[2]), saved)
+        self.assertEqual(len(list(config.PLOTS_DIR.glob("*.png"))), 1)
+        for invalid in (None, "", "expired", "../../unexpected.png", {"points": points}):
+            self.assertEqual(self.request("/api/plots/save", {"plot_id": invalid})[0], 400)

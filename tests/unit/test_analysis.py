@@ -1,9 +1,10 @@
-"""Characterization tests for behavior retained by the terminal module split."""
+"""Regression tests for reusable calculations and input parsing."""
 
 from datetime import datetime
 import unittest
 
-from bilibili_ds import accounts, analysis, plotting, selection, storage
+from bilibili_ds import accounts, analysis, plotting, selection
+from bilibili_ds.web.creators import normalize_web_creator
 
 
 class CalculationTests(unittest.TestCase):
@@ -55,9 +56,11 @@ class CalculationTests(unittest.TestCase):
         self.assertEqual(selection.parse_datetime_input("2026-09-27", end_of_day=True), datetime(2026, 9, 27, 23, 59, 59))
         self.assertEqual(accounts.parse_cookie_header("key=a=b; other=c; ignored"), {"key": "a=b", "other": "c"})
 
-    def test_up_normalization_and_merge(self):
-        entries = storage.normalize_up_entries([{"uid": 42}, {"name": "Example", "space": "https://space.bilibili.com/42"}, None])
-        self.assertEqual(storage.merge_up_entries(entries), [{"name": "Example", "space": "https://space.bilibili.com/42", "uid": "42"}])
+    def test_web_creator_normalization(self):
+        self.assertEqual(normalize_web_creator({"name": "Example", "space": "https://space.bilibili.com/42"}),
+                         {"name": "Example", "space": "https://space.bilibili.com/42", "uid": "42"})
+        self.assertEqual(normalize_web_creator({"uid": 42})["name"], "Creator-42")
+        self.assertIsNone(normalize_web_creator(None))
 
 
 if __name__ == "__main__":

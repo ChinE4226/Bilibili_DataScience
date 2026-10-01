@@ -8,7 +8,7 @@ from typing import Any
 
 from bilibili_api import Credential, user
 
-from bilibili_ds import config, state
+from bilibili_ds import config
 from bilibili_ds.client import (
     close_bilibili_client,
     configure_bilibili_client,
@@ -232,49 +232,8 @@ def credential_from_cache() -> Credential | None:
     return credential_from_dict(record["credential"])
 
 
-def save_credential(credential: Credential) -> None:
-    record = account_record_from_credential(credential)
-    save_account_record(record)
-
-
 def credential_from_env() -> Credential | None:
     return credential_from_environment() or credential_from_cache()
-
-
-def credential_for_requests() -> Credential | None:
-    if state.USE_GUEST_MODE:
-        return None
-    return credential_from_env()
-
-
-async def check_account_condition(
-    credential: Credential | None,
-) -> tuple[bool | None, str | None]:
-    if credential is None or not credential.has_sessdata():
-        return False, None
-
-    configure_bilibili_client()
-    try:
-        return await credential.check_valid(), None
-    except Exception as exc:
-        return None, str(exc)
-    finally:
-        await close_bilibili_client()
-
-
-def account_condition_summary() -> str:
-    if state.USE_GUEST_MODE:
-        return "Guest mode"
-
-    record = active_account_record()
-    if record is not None:
-        name = record.get("name") or record["id"]
-        uid = record.get("uid")
-        return f"{name} (UID {uid})" if uid else str(name)
-
-    if credential_from_environment() is not None:
-        return "Environment account"
-    return "Not signed in"
 
 
 def unlink_if_exists(path: Path) -> bool:

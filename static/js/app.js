@@ -3,16 +3,17 @@ import { uiState } from "./state.js";
 import { getJSON, postJSON } from "./api.js";
 import { performAction, bindAction, formatBytes, escapeHTML, fillOptions, table } from "./ui.js";
 import { renderAccountDetail } from "./views/accounts.js";
-import { renderUPDetail, renderSavedUPs } from "./views/creators.js";
+import { renderCreatorDetail, renderSavedCreators, renderCreatorOptions, closeCreatorMenu } from "./views/creators.js";
 import { renderVideos, lookupSingleVideo } from "./views/videos.js";
-import { updatePlotControls, renderPlot } from "./views/plots.js";
+import { updatePlotControls, renderPlot, setupPlot, syncPlotControls } from "./views/plots.js";
+import { renderAnalysis, setupAnalysis } from "./views/analysis.js";
 import { runAction } from "./progress.js";
 import { enableLiveReload } from "./dev_reload.js";
 
 async function load() {
-  const [health, ups, plots, accounts] = await Promise.all([
+  const [health, creators, plots, accounts] = await Promise.all([
     getJSON("/api/health"),
-    getJSON("/api/ups"),
+    getJSON("/api/creators"),
     getJSON("/api/plots"),
     getJSON("/api/accounts")
   ]);
@@ -20,14 +21,10 @@ async function load() {
   document.getElementById("status").textContent =
     `${health.account} | ${health.request_frequency} requests/s`;
 
-  const selected = health.selected_up;
-  uiState.selectedUP = selected;
-  uiState.savedUPs = ups.ups;
-  document.getElementById("selected").textContent = selected
-    ? `${selected.name} (UID ${selected.uid})`
-    : "No UP selected.";
-
-  renderSavedUPs(load);
+  const selected = health.selected_creator;
+  uiState.selectedCreator = selected;
+  uiState.savedCreators = creators.creators;
+  renderSavedCreators();
 
   document.getElementById("plots").innerHTML = `<div class="saved-plots-grid">${plots.plots.map((plot) => `
     <article class="saved-plot">
@@ -37,7 +34,7 @@ async function load() {
         <span>${formatBytes(plot.size)}</span>
       </footer>
     </article>
-  `).join("") || `<p class="muted">No plots generated yet.</p>`}</div>`;
+  `).join("") || `<p class="muted">No saved plots.</p>`}</div>`;
   document.getElementById("accounts-result").innerHTML = table(
     ["Name", "UID", "Source", "Active", "Action"],
     accounts.accounts.map((account) => [
@@ -57,32 +54,92 @@ async function load() {
   });
 }
 
-function selectPanel(name) {
+const panelSections = { creators: "explore", creator: "explore", "single-video": "explore", videos: "workspace", analysis: "workspace", division: "workspace", plot: "workspace", "saved-plots": "workspace", settings: "settings" };
+const lastPanel = { explore: "creators", workspace: "videos", settings: "settings" };
+const sectionCopy = {
+  explore: ["SEARCH · DISCOVER", "Explore", "Get to know a creator or inspect a single video before working with a dataset."],
+  workspace: ["COLLECT · UNDERSTAND · COMPARE", "Workspace", "One dataset, several ways to explore it. Fetch once, then work locally."],
+  settings: ["ACCOUNT · CONNECTION", "Settings", "Manage your account, sign-in options, and request frequency."]
+};
+
+const menuHistory = [];
+const panelLabels = { creators: "Creators", creator: "Creator profile", "single-video": "Single video", videos: "Dataset", analysis: "Statistics", division: "Ratios", plot: "Charts", "saved-plots": "Saved charts", settings: "Settings" };
+
+function selectPanel(name, { remember = true } = {}) {
   const panel = document.getElementById(`panel-${name}`);
-  document.querySelectorAll(".panel").forEach((item) => item.classList.toggle("active", item === panel));
-  const selection = document.querySelector(".selection-card");
-  const slot = panel.querySelector(".selection-slot");
-  selection.hidden = !slot;
-  if (slot) slot.appendChild(selection);
-  document.querySelector("main").classList.toggle("wide-mode", ["settings", "single-video", "saved-plots"].includes(name));
-  document.querySelectorAll("button[data-panel]").forEach((button) => {
-    if (button.dataset.panel === name) button.setAttribute("aria-current", "page");
+  if (!panel) return;
+  const current = document.querySelector("main").dataset.activePanel;
+  if (remember && current && current !== name) menuHistory.push(current);
+  const back = document.getElementById("menu-back");
+  back.hidden = menuHistory.length === 0;
+  back.textContent = `← Back to ${panelLabels[menuHistory.at(-1)] || "previous view"}`;
+  document.getElementById("menu-back-hint").hidden = back.hidden;
+  const section = panelSections[name];
+  lastPanel[section] = name;
+  document.getElementById("open-library").hidden = ["creators", "settings", "single-video", "saved-plots"].includes(name);
+  document.querySelector(".creator-switcher").hidden = document.getElementById("open-library").hidden;
+  closeCreatorMenu();
+  document.querySelectorAll(".panel").forEach(item => item.classList.toggle("active", item === panel));
+  document.querySelector(".selection-card").hidden = !["videos", "analysis", "division", "plot"].includes(name);
+  document.querySelectorAll("[data-tools]").forEach(nav => { nav.hidden = nav.dataset.tools !== section; });
+  document.querySelectorAll("button[data-section], button[data-panel]").forEach(button => {
+    const active = button.dataset.section ? button.dataset.section === section : button.dataset.panel === name;
+    if (active) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   });
+  const [eyebrow, title, description] = sectionCopy[section];
+  document.getElementById("section-eyebrow").textContent = eyebrow;
+  document.getElementById("section-title").textContent = title;
+  document.getElementById("section-description").textContent = description;
+  document.querySelector("main").dataset.activePanel = name;
 }
 
 function setup() {
-  ["metric-field", "plot-field"].forEach((id) => fillOptions(id, metricFields));
+  setupPlot(load);
+  setupAnalysis();
+  ["metric-field", "plot-field", "analysis-field"].forEach((id) => fillOptions(id, metricFields));
   ["division-numerator", "division-denominator", "plot-numerator", "plot-denominator"].forEach((id) => fillOptions(id, divisionFields));
   document.querySelectorAll("button[data-panel]").forEach((button) => {
     button.addEventListener("click", () => selectPanel(button.dataset.panel));
   });
-  const compact = matchMedia("(max-width: 1050px)");
-  const updateLibrary = () => { document.getElementById("up-picker").open = !compact.matches; };
-  compact.addEventListener("change", updateLibrary);
-  updateLibrary();
+  document.querySelectorAll("button[data-section]").forEach(button => {
+    button.addEventListener("click", () => selectPanel(lastPanel[button.dataset.section]));
+  });
+  selectPanel("videos");
+  const menu = document.getElementById("creator-menu");
+  document.getElementById("open-library").addEventListener("click", () => {
+    if (!menu.hidden) return closeCreatorMenu({ restoreFocus: true });
+    document.getElementById("creator-menu-feedback").hidden = true;
+    menu.hidden = false;
+    document.getElementById("open-library").setAttribute("aria-expanded", "true");
+    document.getElementById("creator-search").focus();
+  });
+  document.getElementById("creator-search").addEventListener("input", renderCreatorOptions);
+  document.getElementById("manage-creators").addEventListener("click", () => {
+    selectPanel("creators");
+    document.getElementById("add-creator-form").open = true;
+    document.getElementById("new-creator-name").focus();
+  });
+  const goBack = () => {
+    if (uiState.actionBusy || !menuHistory.length) return;
+    selectPanel(menuHistory.pop(), { remember: false });
+  };
+  document.getElementById("menu-back").addEventListener("click", goBack);
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && !menu.hidden) closeCreatorMenu({ restoreFocus: true });
+  });
+  document.addEventListener("click", event => {
+    if (!(event.target instanceof Element)) return;
+    if (!menu.hidden && !event.target.closest(".creator-switcher")) {
+      closeCreatorMenu();
+      return;
+    }
+    if (window.getSelection()?.toString() || uiState.actionBusy) return;
+    // Only bare layout surfaces count as blank; controls, charts and results do not.
+    if (event.target.matches("body, main, .work, .workspace-heading, .panel, .page-heading, .tool-nav, .main-nav")) goBack();
+  });
   const emptyMessages = {
-    "up-detail-result": "No profile loaded.", "single-video-result": "No video loaded.",
+    "creator-detail-result": "No profile loaded.", "single-video-result": "No video loaded.",
     "videos-result": "No videos loaded.", "analysis-result": "No analysis yet.",
     "division-result": "No ratios calculated.", "plot-result": "No plot generated.",
     "account-result": "No account detail loaded."
@@ -94,7 +151,18 @@ function setup() {
     element.tabIndex = 0;
     element.setAttribute("aria-label", element.id.replaceAll("-", " "));
   });
-  document.getElementById("up-search").addEventListener("input", () => renderSavedUPs(load));
+  const updateFilterSummary = () => {
+    const minimum = document.getElementById("local-min-views").value;
+    const maximum = document.getElementById("local-max-views").value;
+    document.getElementById("filter-summary").textContent = minimum || maximum
+      ? `· Views ${minimum || "0"}–${maximum || "unlimited"} · run a tool to apply`
+      : "· All fetched rows";
+  };
+  ["local-min-views", "local-max-views"].forEach(id => {
+    document.getElementById(id).addEventListener("input", updateFilterSummary);
+    document.getElementById(id).addEventListener("change", updateFilterSummary);
+  });
+  document.getElementById("creator-library-search").addEventListener("input", renderSavedCreators);
   document.getElementById("plot-mode").addEventListener("change", updatePlotControls);
   updatePlotControls();
   document.getElementById("selection-kind").addEventListener("change", (event) => {
@@ -102,10 +170,10 @@ function setup() {
     document.getElementById("selection-published").hidden = event.target.value !== "published";
     document.getElementById("selection-metric").hidden = event.target.value !== "metric";
   });
-  bindAction("add-up", async () => {
-    await postJSON("/api/ups/add", {
-      name: document.getElementById("new-up-name").value,
-      space: document.getElementById("new-up-space").value
+  bindAction("add-creator", async () => {
+    await postJSON("/api/creators/add", {
+      name: document.getElementById("new-creator-name").value,
+      space: document.getElementById("new-creator-space").value
     });
     await load();
   });
@@ -113,16 +181,19 @@ function setup() {
   document.getElementById("single-video-input").addEventListener("keydown", (event) => {
     if (event.key === "Enter") document.getElementById("lookup-single-video").click();
   });
+  bindAction("fetch-dataset", async () => {
+    const data = await runAction("list", { refresh: true });
+    renderVideos("videos-result", data.videos);
+    document.getElementById("dataset-source").open = false;
+    selectPanel("videos");
+  });
   bindAction("list-videos", async () => {
     const data = await runAction("list");
     renderVideos("videos-result", data.videos);
   });
   bindAction("run-analysis", async () => {
     const data = await runAction("analysis");
-    document.getElementById("analysis-result").innerHTML = table(
-      ["Metric", "Count", "Mean", "Median"],
-      data.summaries.map((item) => [item.label, item.count, item.mean, item.median])
-    );
+    renderAnalysis(data);
   });
   bindAction("run-division", async () => {
     const data = await runAction("division", {
@@ -131,7 +202,7 @@ function setup() {
       denominator: document.getElementById("division-denominator").value
     });
     if (data.mode === "aggregate") {
-      document.getElementById("division-result").innerHTML = table(["Numerator", "Denominator", "Ratio"], [[data.numerator_total, data.denominator_total, data.ratio]]);
+      document.getElementById("division-result").innerHTML = table(["Numerator", "Denominator", "Ratio", "Eligible", "Excluded"], [[data.numerator_total, data.denominator_total, data.ratio, data.eligible_count, data.excluded_count]]);
     } else {
       document.getElementById("division-result").innerHTML = table(
         ["Title", "Published", "Numerator", "Denominator", "Ratio"],
@@ -146,11 +217,10 @@ function setup() {
       numerator: document.getElementById("plot-numerator").value,
       denominator: document.getElementById("plot-denominator").value
     }, "plot-progress");
-    renderPlot(data.points, data.y_label || data.plot_label || "Value");
-    const savedPlot = data.plot_file ? `<p class="muted">Saved PNG: ${escapeHTML(data.plot_file)}</p>` : "";
-    document.getElementById("plot-result").innerHTML = savedPlot + table(["Title", "Published", "Value"], data.points.map((point) => [point.title, point.label, point.value]));
-    await load();
-  });
+    renderPlot(data);
+    document.getElementById("plot-result").innerHTML = table(["Title", "Published", "Value"], data.points.map((point) => [point.title, point.label, point.value]));
+    document.getElementById("plot-data-label").textContent = `Data (${data.points.length.toLocaleString()} videos)`;
+  }, syncPlotControls);
   bindAction("load-account", async () => {
     renderAccountDetail(await getJSON("/api/account-detail"));
   });
@@ -183,8 +253,8 @@ function setup() {
     document.getElementById("qr-result").innerHTML = table(["Field", "Value"], Object.entries(data).map(([key, value]) => [key, typeof value === "object" ? JSON.stringify(value) : value]));
     await load();
   });
-  bindAction("load-up-detail", async () => {
-    renderUPDetail(await getJSON("/api/up-detail"));
+  bindAction("load-creator-detail", async () => {
+    renderCreatorDetail(await getJSON("/api/creator-detail"));
   });
 }
 

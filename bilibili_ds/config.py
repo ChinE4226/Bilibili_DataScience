@@ -9,7 +9,7 @@ RUNTIME_DIR = PROJECT_ROOT / ".runtime"
 TEMPLATES_DIR = PROJECT_ROOT / "templates"
 STATIC_DIR = PROJECT_ROOT / "static"
 
-UPS_FILE = OBJECTS_DIR / "ups.json"
+CREATORS_FILE = OBJECTS_DIR / "creators.json"
 
 QRCODE_FILE = RUNTIME_DIR / "bilibili_qrcode.png"
 COOKIE_FILE = RUNTIME_DIR / "bilibili_cookie.txt"

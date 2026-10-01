@@ -1,1 +1,1 @@
-"""Local HTTP interface; independent of the terminal interface."""
+"""Local browser application and HTTP interface."""

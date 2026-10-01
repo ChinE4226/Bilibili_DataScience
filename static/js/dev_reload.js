@@ -16,9 +16,10 @@ export function enableLiveReload(refresh) {
       const button = [...document.querySelectorAll("button[data-panel]")]
         .find((item) => item.dataset.panel === saved.panel);
       if (button) button.click();
+      else if (saved.panel === "settings") document.querySelector('[data-section="settings"]')?.click();
     }
   } catch (_) { /* Reload also works when browser storage is unavailable. */ }
-  let upsRevision = null;
+  let creatorsRevision = null;
   async function checkVersion() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 2500);
@@ -31,14 +32,14 @@ export function enableLiveReload(refresh) {
           const fields = {};
           document.querySelectorAll("input[id]:not([type=password]):not([type=file]), select[id]")
             .forEach((control) => { fields[control.id] = control.value; });
-          const panel = document.querySelector('button[data-panel][aria-current="page"]')?.dataset.panel;
+          const panel = document.querySelector("main")?.dataset.activePanel;
           sessionStorage.setItem(storageKey, JSON.stringify({ fields, panel }));
         } catch (_) { /* Keep reloading even if session storage is disabled. */ }
         location.reload();
         return;
       }
-      if (upsRevision !== null && upsRevision !== version.ups_revision) await refresh();
-      upsRevision = version.ups_revision;
+      if (creatorsRevision !== null && creatorsRevision !== version.creators_revision) await refresh();
+      creatorsRevision = version.creators_revision;
     } catch (_) { /* Retry while the worker is restarting or awaiting a source fix. */ }
     finally {
       clearTimeout(timeout);

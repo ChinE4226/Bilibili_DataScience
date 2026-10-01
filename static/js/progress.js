@@ -51,7 +51,11 @@ export async function runAction(action, extra = {}, progressTarget = null) {
   const targets = { list: "videos-progress", analysis: "analysis-progress", division: "division-progress", plot: "plot-progress" };
   startProgressPolling(labels[action] || "Running action", progressTarget || targets[action]);
   try {
-    return await postJSON("/api/video-action", { action, selection: selectionPayload(), ...extra });
+    const data = await postJSON("/api/video-action", { action, selection: selectionPayload(), reuse_only: true, local_filter: { minimum_views: document.getElementById("local-min-views").value, maximum_views: document.getElementById("local-max-views").value }, ...extra });
+    if (data.dataset) {
+      document.getElementById("dataset-status").textContent = `${data.dataset.reused ? "Reused" : "Fetched"} ${data.dataset.count} rows · Creator ${data.dataset.uid || "sample"} · ${data.dataset.selection} · collected ${new Date(data.dataset.started_at).toLocaleString()} – ${new Date(data.dataset.collected_at).toLocaleString()}. In memory only.`;
+    }
+    return data;
   } finally {
     await stopProgressPolling();
   }

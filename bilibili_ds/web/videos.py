@@ -8,7 +8,7 @@ from typing import Any
 from bilibili_api import user, video
 
 from bilibili_ds import accounts as account_service, client, selection as video_selection, videos as video_service
-from bilibili_ds.web.creators import selected_up
+from bilibili_ds.web.creators import selected_creator
 from bilibili_ds.web.progress import set_progress
 from bilibili_ds.web.serializers import (
     extract_bvid,
@@ -30,7 +30,7 @@ async def fetch_single_video(value: Any) -> dict[str, Any]:
         raise
     credential = account_service.credential_from_env()
     client.configure_bilibili_client()
-    set_progress(f"Looking up {bvid}.", running=True, percent=15, count=0)
+    set_progress(f"Fetching {bvid}.", running=True, percent=15, count=0)
     try:
         info = await video.Video(bvid=bvid, credential=credential).get_info()
         if not isinstance(info, dict) or not info:
@@ -71,7 +71,7 @@ async def fetch_web_video_summaries(
             page_data = await uploader.get_videos(pn=page_number, ps=page_size, order=order)
         except Exception as exc:
             set_progress(f"Failed to fetch video summary page {page_number}: {exc}", percent=percent)
-            break
+            raise ValueError(f"Video collection stopped on page {page_number}. Try refreshing later.") from exc
 
         page_items = page_data.get("list", {}).get("vlist", [])
         if not page_items:
@@ -121,9 +121,9 @@ async def enrich_web_video_items(
 
 
 async def fetch_selected_video_items(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], str, int | None]:
-    selected = selected_up()
+    selected = selected_creator()
     if selected is None:
-        raise ValueError("No UP is selected.")
+        raise ValueError("No Creator is selected.")
 
     credential = account_service.credential_from_env()
     uploader = user.User(int(selected["uid"]), credential=credential)
@@ -134,11 +134,11 @@ async def fetch_selected_video_items(payload: dict[str, Any]) -> tuple[list[dict
 
     client.configure_bilibili_client()
     try:
-        set_progress(f"{action_label}: checking selected UP video count.", running=True, percent=5, count=0)
+        set_progress(f"{action_label}: checking selected Creator video count.", running=True, percent=5, count=0)
         first_page = await uploader.get_videos(pn=1, ps=1, order=user.VideoOrder.PUBDATE)
         total = video_service.video_total_from_response(first_page)
         if total <= 0:
-            set_progress("No videos were found for the selected UP.", running=False, percent=100, count=0)
+            set_progress("No videos were found for the selected Creator.", running=False, percent=100, count=0)
             return [], "no videos", None
 
         if kind == "position":
@@ -232,7 +232,7 @@ async def fetch_selected_video_items(payload: dict[str, Any]) -> tuple[list[dict
 
 
 async def fetch_followers() -> int | None:
-    selected = selected_up()
+    selected = selected_creator()
     if selected is None:
         return None
     credential = account_service.credential_from_env()
@@ -245,10 +245,10 @@ async def fetch_followers() -> int | None:
         await client.close_bilibili_client()
 
 
-async def selected_up_detail() -> dict[str, Any]:
-    selected = selected_up()
+async def selected_creator_detail() -> dict[str, Any]:
+    selected = selected_creator()
     if selected is None:
-        raise ValueError("No UP is selected.")
+        raise ValueError("No Creator is selected.")
     credential = account_service.credential_from_env()
     uploader = user.User(int(selected["uid"]), credential=credential)
     client.configure_bilibili_client()

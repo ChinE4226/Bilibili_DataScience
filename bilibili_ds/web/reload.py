@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+import signal
 import socket
 import subprocess
 import sys
@@ -25,7 +26,7 @@ def parse_args() -> argparse.Namespace:
 
 def source_snapshot(root: Path) -> dict[str, tuple[int, int]]:
     paths = [root / "web_server.py", root / "web_reload.py"]
-    for folder in ("main", "bilibili_ds", "static", "templates"):
+    for folder in ("bilibili_ds", "static", "templates"):
         paths.extend((root / folder).rglob("*"))
     result = {}
     for path in paths:
@@ -71,6 +72,16 @@ def run(args: argparse.Namespace, root: Path) -> None:
     worker = None
     first_start = True
     print(f"Auto-reload enabled at http://{args.host}:{port}. Save a source file to update.", flush=True)
+    previous_handlers = {}
+
+    def request_stop(signum, frame):
+        raise KeyboardInterrupt
+
+    # Terminal close (SIGHUP) and normal termination must stop the worker,
+    # just like Control+C, even if only the supervisor receives the signal.
+    for signum in (signal.SIGTERM, getattr(signal, "SIGHUP", None)):
+        if signum is not None:
+            previous_handlers[signum] = signal.signal(signum, request_stop)
     try:
         while True:
             token = uuid.uuid4().hex
@@ -105,5 +116,9 @@ def run(args: argparse.Namespace, root: Path) -> None:
     except KeyboardInterrupt:
         print("\nStopping dashboard and file watcher.", flush=True)
     finally:
-        if worker is not None:
-            stop_worker(worker)
+        try:
+            if worker is not None:
+                stop_worker(worker)
+        finally:
+            for signum, handler in previous_handlers.items():
+                signal.signal(signum, handler)

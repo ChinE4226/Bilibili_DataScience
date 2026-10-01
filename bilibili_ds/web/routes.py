@@ -23,10 +23,10 @@ from bilibili_ds.web.accounts import (
 )
 from bilibili_ds.web.actions import execute_video_action
 from bilibili_ds.web.assets import STATIC_CONTENT_TYPES, dashboard_html, static_file
-from bilibili_ds.web.creators import add_web_up, load_web_ups, select_up_by_uid, selected_up
+from bilibili_ds.web.creators import add_web_creator, load_web_creators, select_creator_by_uid, selected_creator
 from bilibili_ds.web.http import json_bytes, read_json_body
-from bilibili_ds.web.plots import plot_entries
-from bilibili_ds.web.videos import fetch_single_video, selected_up_detail
+from bilibili_ds.web.plots import plot_entries, save_prepared_plot
+from bilibili_ds.web.videos import fetch_single_video, selected_creator_detail
 
 
 class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
@@ -69,23 +69,23 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/dev-version":
             try:
-                ups_revision = config.UPS_FILE.stat().st_mtime_ns
+                creators_revision = config.CREATORS_FILE.stat().st_mtime_ns
             except FileNotFoundError:
-                ups_revision = 0
-            self.send_json({"token": state.RELOAD_TOKEN, "ups_revision": str(ups_revision)})
+                creators_revision = 0
+            self.send_json({"token": state.RELOAD_TOKEN, "creators_revision": str(creators_revision)})
             return
         if path == "/api/health":
             self.send_json(
                 {
                     "ok": True,
-                    "selected_up": selected_up(),
+                    "selected_creator": selected_creator(),
                     "account": account_summary(),
                     "request_frequency": settings.REQUEST_FREQUENCY,
                 }
             )
             return
-        if path == "/api/ups":
-            self.send_json({"ups": load_web_ups(), "selected_up": selected_up()})
+        if path == "/api/creators":
+            self.send_json({"creators": load_web_creators(), "selected_creator": selected_creator()})
             return
         if path == "/api/plots":
             self.send_json({"plots": plot_entries()})
@@ -102,9 +102,9 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self.send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
             return
-        if path == "/api/up-detail":
+        if path == "/api/creator-detail":
             try:
-                self.send_json(asyncio.run(selected_up_detail()))
+                self.send_json(asyncio.run(selected_creator_detail()))
             except Exception as exc:
                 self.send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
             return
@@ -133,7 +133,7 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
         if path == "/api/health":
             self.send_bytes(b"{}", "application/json; charset=utf-8", send_body=False)
             return
-        if path == "/api/ups":
+        if path == "/api/creators":
             self.send_bytes(b"{}", "application/json; charset=utf-8", send_body=False)
             return
         if path == "/api/plots":
@@ -145,7 +145,7 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
         if path == "/api/accounts":
             self.send_bytes(b"{}", "application/json; charset=utf-8", send_body=False)
             return
-        if path in {"/api/account-detail", "/api/up-detail"}:
+        if path in {"/api/account-detail", "/api/creator-detail"}:
             self.send_bytes(b"{}", "application/json; charset=utf-8", send_body=False)
             return
         if path == "/favicon.ico":
@@ -168,10 +168,11 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         if path not in {
-            "/api/selected-up",
-            "/api/ups/add",
+            "/api/selected-creator",
+            "/api/creators/add",
             "/api/video-lookup",
             "/api/video-action",
+            "/api/plots/save",
             "/api/request-frequency",
             "/api/sign-out",
             "/api/account/select",
@@ -188,25 +189,28 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            if path == "/api/selected-up":
+            if path == "/api/selected-creator":
                 uid = str(data.get("uid") or "").strip()
                 if not uid:
                     raise ValueError("uid is required.")
-                entry = select_up_by_uid(uid)
+                entry = select_creator_by_uid(uid)
                 if entry is None:
-                    self.send_error_json(HTTPStatus.NOT_FOUND, "UP was not found.")
+                    self.send_error_json(HTTPStatus.NOT_FOUND, "Creator was not found.")
                     return
-                self.send_json({"selected_up": entry})
+                self.send_json({"selected_creator": entry})
                 return
-            if path == "/api/ups/add":
-                entry = add_web_up(str(data.get("name") or "").strip(), str(data.get("space") or "").strip())
-                self.send_json({"up": entry})
+            if path == "/api/creators/add":
+                entry = add_web_creator(str(data.get("name") or "").strip(), str(data.get("space") or "").strip())
+                self.send_json({"creator": entry})
                 return
             if path == "/api/video-lookup":
                 self.send_json({"video": asyncio.run(fetch_single_video(data.get("video")))})
                 return
             if path == "/api/video-action":
                 self.send_json(asyncio.run(execute_video_action(data)))
+                return
+            if path == "/api/plots/save":
+                self.send_json(save_prepared_plot(data.get("plot_id")))
                 return
             if path == "/api/request-frequency":
                 value = float(data.get("value"))
