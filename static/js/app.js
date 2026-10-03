@@ -1,14 +1,18 @@
+import { setupSelects, closeSelectMenus } from "./selects.js";
 import { metricFields, divisionFields } from "./constants.js";
 import { uiState } from "./state.js";
 import { getJSON, postJSON } from "./api.js";
-import { performAction, bindAction, formatBytes, escapeHTML, fillOptions, table } from "./ui.js";
+import { performAction, bindAction, formatBytes, escapeHTML, fillOptions, table, preservePageHeight } from "./ui.js";
 import { renderAccountDetail } from "./views/accounts.js";
-import { renderCreatorDetail, renderSavedCreators, renderCreatorOptions, closeCreatorMenu } from "./views/creators.js";
+import { renderCreatorDetail, renderSavedCreators, filterSavedCreators, renderCreatorOptions, closeCreatorMenu } from "./views/creators.js";
 import { renderVideos, lookupSingleVideo } from "./views/videos.js";
 import { updatePlotControls, renderPlot, setupPlot, syncPlotControls } from "./views/plots.js";
-import { renderAnalysis, setupAnalysis } from "./views/analysis.js";
+import { renderAnalysis, setupAnalysis, syncAnalysisControls } from "./views/analysis.js";
 import { runAction } from "./progress.js";
 import { enableLiveReload } from "./dev_reload.js";
+import { setupBatch, updateBatchSummary } from "./batch.js";
+import { fetchWeekly } from "./views/weekly.js";
+import { fetchRandomSample, setupSampling } from "./views/sampling.js";
 
 async function load() {
   const [health, creators, plots, accounts] = await Promise.all([
@@ -52,9 +56,10 @@ async function load() {
       await load();
     }));
   });
+  updateBatchSummary();
 }
 
-const panelSections = { creators: "explore", creator: "explore", "single-video": "explore", videos: "workspace", analysis: "workspace", division: "workspace", plot: "workspace", "saved-plots": "workspace", settings: "settings" };
+const panelSections = { creators: "explore", creator: "explore", "single-video": "explore", videos: "workspace", analysis: "workspace", division: "workspace", plot: "workspace", sampling: "workspace", tasks: "workspace", "saved-plots": "workspace", settings: "settings" };
 const lastPanel = { explore: "creators", workspace: "videos", settings: "settings" };
 const sectionCopy = {
   explore: ["SEARCH · DISCOVER", "Explore", "Get to know a creator or inspect a single video before working with a dataset."],
@@ -63,24 +68,27 @@ const sectionCopy = {
 };
 
 const menuHistory = [];
-const panelLabels = { creators: "Creators", creator: "Creator profile", "single-video": "Single video", videos: "Dataset", analysis: "Statistics", division: "Ratios", plot: "Charts", "saved-plots": "Saved charts", settings: "Settings" };
+const panelLabels = { creators: "Creators", creator: "Creator profile", "single-video": "Single video", videos: "Dataset", analysis: "Statistics", division: "Ratios", plot: "Charts", sampling: "Sampling", tasks: "Tasks", "saved-plots": "Saved charts", settings: "Settings" };
 
 function selectPanel(name, { remember = true } = {}) {
   const panel = document.getElementById(`panel-${name}`);
   if (!panel) return;
+  preservePageHeight();
   const current = document.querySelector("main").dataset.activePanel;
   if (remember && current && current !== name) menuHistory.push(current);
   const back = document.getElementById("menu-back");
-  back.hidden = menuHistory.length === 0;
-  back.textContent = `← Back to ${panelLabels[menuHistory.at(-1)] || "previous view"}`;
-  document.getElementById("menu-back-hint").hidden = back.hidden;
+  back.disabled = menuHistory.length === 0;
+  back.textContent = back.disabled ? "← Back" : `← Back to ${panelLabels[menuHistory.at(-1)] || "previous view"}`;
+  back.title = back.disabled ? "No previous page" : back.textContent;
+  document.getElementById("menu-back-hint").hidden = back.disabled;
   const section = panelSections[name];
   lastPanel[section] = name;
-  document.getElementById("open-library").hidden = ["creators", "settings", "single-video", "saved-plots"].includes(name);
+  document.getElementById("open-library").hidden = ["creators", "settings", "single-video", "sampling", "saved-plots"].includes(name);
   document.querySelector(".creator-switcher").hidden = document.getElementById("open-library").hidden;
   closeCreatorMenu();
+  closeSelectMenus();
   document.querySelectorAll(".panel").forEach(item => item.classList.toggle("active", item === panel));
-  document.querySelector(".selection-card").hidden = !["videos", "analysis", "division", "plot"].includes(name);
+  document.querySelector(".selection-card").hidden = name !== "videos";
   document.querySelectorAll("[data-tools]").forEach(nav => { nav.hidden = nav.dataset.tools !== section; });
   document.querySelectorAll("button[data-section], button[data-panel]").forEach(button => {
     const active = button.dataset.section ? button.dataset.section === section : button.dataset.panel === name;
@@ -92,6 +100,38 @@ function selectPanel(name, { remember = true } = {}) {
   document.getElementById("section-title").textContent = title;
   document.getElementById("section-description").textContent = description;
   document.querySelector("main").dataset.activePanel = name;
+  if (name === "tasks") updateBatchSummary();
+}
+
+function workspaceTasks() {
+  const value = id => document.getElementById(id).value;
+  return [
+    { id: "fetch", label: "Fetch dataset", action: "list", extra: { refresh: true }, render(data) {
+      renderVideos("videos-result", data.videos);
+      document.getElementById("dataset-source").open = false;
+    } },
+    { id: "division", label: "Calculate ratios", action: "division", extra: {
+      mode: value("division-mode"), numerator: value("division-numerator"), denominator: value("division-denominator")
+    }, render(data) {
+      document.getElementById("division-result").innerHTML = data.mode === "aggregate"
+        ? table(["Numerator", "Denominator", "Ratio", "Eligible", "Excluded"], [[data.numerator_total, data.denominator_total, data.ratio, data.eligible_count, data.excluded_count]])
+        : table(["Title", "Published", "Numerator", "Denominator", "Ratio"], data.rows.map(row => [row.title, row.published_time, row.numerator, row.denominator, row.ratio]));
+    } },
+    { id: "analysis", label: "Calculate statistics", action: "analysis", extra: {}, render: renderAnalysis },
+    { id: "plot", label: "Generate chart", action: "plot", extra: {
+      plot_mode: value("plot-mode"), field: value("plot-field"), numerator: value("plot-numerator"), denominator: value("plot-denominator")
+    }, render(data) {
+      renderPlot(data);
+      document.getElementById("plot-result").innerHTML = table(["Title", "Published", "Value"], data.points.map(point => [point.title, point.label, point.value]));
+      document.getElementById("plot-data-label").textContent = `Data (${data.points.length.toLocaleString()} videos)`;
+    } }
+  ];
+}
+
+async function executeWorkspaceTask(task, payload = {}, progressTarget = null) {
+  const data = await runAction(task.action, { ...payload, ...task.extra }, progressTarget);
+  task.render(data);
+  return data;
 }
 
 function setup() {
@@ -105,11 +145,15 @@ function setup() {
   document.querySelectorAll("button[data-section]").forEach(button => {
     button.addEventListener("click", () => selectPanel(lastPanel[button.dataset.section]));
   });
+  document.querySelectorAll("button[data-config-panel]").forEach(button => {
+    button.addEventListener("click", () => selectPanel(button.dataset.configPanel));
+  });
   selectPanel("videos");
   const menu = document.getElementById("creator-menu");
   document.getElementById("open-library").addEventListener("click", () => {
     if (!menu.hidden) return closeCreatorMenu({ restoreFocus: true });
     document.getElementById("creator-menu-feedback").hidden = true;
+    closeSelectMenus();
     menu.hidden = false;
     document.getElementById("open-library").setAttribute("aria-expanded", "true");
     document.getElementById("creator-search").focus();
@@ -134,6 +178,7 @@ function setup() {
       closeCreatorMenu();
       return;
     }
+    if (closeSelectMenus(event.target)) return;
     if (window.getSelection()?.toString() || uiState.actionBusy) return;
     // Only bare layout surfaces count as blank; controls, charts and results do not.
     if (event.target.matches("body, main, .work, .workspace-heading, .panel, .page-heading, .tool-nav, .main-nav")) goBack();
@@ -154,15 +199,16 @@ function setup() {
   const updateFilterSummary = () => {
     const minimum = document.getElementById("local-min-views").value;
     const maximum = document.getElementById("local-max-views").value;
-    document.getElementById("filter-summary").textContent = minimum || maximum
-      ? `· Views ${minimum || "0"}–${maximum || "unlimited"} · run a tool to apply`
-      : "· All fetched rows";
+    const filters = [];
+    if (minimum || maximum) filters.push(`Views ${minimum || "0"}–${maximum || "unlimited"}`);
+    document.getElementById("filter-summary").textContent = `· ${filters.join(" · ") || "All fetched rows"} · run a tool to apply`;
   };
   ["local-min-views", "local-max-views"].forEach(id => {
     document.getElementById(id).addEventListener("input", updateFilterSummary);
     document.getElementById(id).addEventListener("change", updateFilterSummary);
   });
-  document.getElementById("creator-library-search").addEventListener("input", renderSavedCreators);
+  updateFilterSummary();
+  document.getElementById("creator-library-search").addEventListener("input", filterSavedCreators);
   document.getElementById("plot-mode").addEventListener("change", updatePlotControls);
   updatePlotControls();
   document.getElementById("selection-kind").addEventListener("change", (event) => {
@@ -178,49 +224,24 @@ function setup() {
     await load();
   });
   bindAction("lookup-single-video", lookupSingleVideo);
+  bindAction("fetch-weekly", fetchWeekly);
+  bindAction("fetch-random-sample", fetchRandomSample);
+  setupSampling();
   document.getElementById("single-video-input").addEventListener("keydown", (event) => {
     if (event.key === "Enter") document.getElementById("lookup-single-video").click();
   });
-  bindAction("fetch-dataset", async () => {
-    const data = await runAction("list", { refresh: true });
-    renderVideos("videos-result", data.videos);
-    document.getElementById("dataset-source").open = false;
-    selectPanel("videos");
-  });
+  bindAction("fetch-dataset", () => executeWorkspaceTask(workspaceTasks().find(task => task.id === "fetch")));
   bindAction("list-videos", async () => {
     const data = await runAction("list");
     renderVideos("videos-result", data.videos);
   });
-  bindAction("run-analysis", async () => {
-    const data = await runAction("analysis");
-    renderAnalysis(data);
-  });
-  bindAction("run-division", async () => {
-    const data = await runAction("division", {
-      mode: document.getElementById("division-mode").value,
-      numerator: document.getElementById("division-numerator").value,
-      denominator: document.getElementById("division-denominator").value
-    });
-    if (data.mode === "aggregate") {
-      document.getElementById("division-result").innerHTML = table(["Numerator", "Denominator", "Ratio", "Eligible", "Excluded"], [[data.numerator_total, data.denominator_total, data.ratio, data.eligible_count, data.excluded_count]]);
-    } else {
-      document.getElementById("division-result").innerHTML = table(
-        ["Title", "Published", "Numerator", "Denominator", "Ratio"],
-        data.rows.map((row) => [row.title, row.published_time, row.numerator, row.denominator, row.ratio])
-      );
-    }
-  });
-  bindAction("run-plot", async () => {
-    const data = await runAction("plot", {
-      plot_mode: document.getElementById("plot-mode").value,
-      field: document.getElementById("plot-field").value,
-      numerator: document.getElementById("plot-numerator").value,
-      denominator: document.getElementById("plot-denominator").value
-    }, "plot-progress");
-    renderPlot(data);
-    document.getElementById("plot-result").innerHTML = table(["Title", "Published", "Value"], data.points.map((point) => [point.title, point.label, point.value]));
-    document.getElementById("plot-data-label").textContent = `Data (${data.points.length.toLocaleString()} videos)`;
-  }, syncPlotControls);
+  bindAction("run-analysis", () => executeWorkspaceTask(workspaceTasks().find(task => task.id === "analysis")), syncAnalysisControls);
+  bindAction("run-division", () => executeWorkspaceTask(workspaceTasks().find(task => task.id === "division")));
+  bindAction("run-plot", () => executeWorkspaceTask(workspaceTasks().find(task => task.id === "plot")), syncPlotControls);
+  setupBatch({ tasks: workspaceTasks, execute: executeWorkspaceTask, syncControls() {
+    syncAnalysisControls();
+    syncPlotControls();
+  } });
   bindAction("load-account", async () => {
     renderAccountDetail(await getJSON("/api/account-detail"));
   });
@@ -259,6 +280,7 @@ function setup() {
 }
 
 setup();
+setupSelects();
 enableLiveReload(load);
 load().catch((error) => {
   document.getElementById("status").textContent = error.message;

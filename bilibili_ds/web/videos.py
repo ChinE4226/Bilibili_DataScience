@@ -8,6 +8,7 @@ from typing import Any
 from bilibili_api import user, video
 
 from bilibili_ds import accounts as account_service, client, selection as video_selection, videos as video_service
+from bilibili_ds.distributions import has_complete_metrics
 from bilibili_ds.web.creators import selected_creator
 from bilibili_ds.web.progress import set_progress
 from bilibili_ds.web.serializers import (
@@ -109,7 +110,9 @@ async def enrich_web_video_items(
             percent=start_percent + int(((index - 1) / total) * (end_percent - start_percent)),
             count=index - 1,
         )
-        enriched_items.append(await video_service.fetch_video_detail(item, credential))
+        enriched = await video_service.fetch_video_detail(item, credential)
+        check_detail_rejection(enriched)
+        enriched_items.append(enriched)
         set_progress(
             f"{progress_label}: fetched detail {index}/{total}.",
             percent=start_percent + int((index / total) * (end_percent - start_percent)),
@@ -120,7 +123,61 @@ async def enrich_web_video_items(
     return enriched_items
 
 
-async def fetch_selected_video_items(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], str, int | None]:
+def check_detail_rejection(item):
+    if item.get("detail_error_code") in {-101, -403, -412, -352, -509}:
+        raise ValueError("Bilibili rejected video detail requests. Collection stopped; try refreshing later.")
+
+
+async def fetch_valid_video_count(uploader, credential, start, requested, total, action_label):
+    """Scan from a raw publication position until enough unique valid rows exist."""
+    page_size = 30
+    page_number = (start - 1) // page_size + 1
+    offset = (start - 1) % page_size
+    items, seen = [], set()
+    examined = skipped = duplicates = 0
+    while len(items) < requested and (page_number - 1) * page_size < total:
+        set_progress(f"{action_label}: {len(items)}/{requested} valid videos; fetching summary page {page_number}.",
+                     percent=15 + int(73 * len(items) / requested), count=len(items))
+        try:
+            response = await uploader.get_videos(pn=page_number, ps=page_size, order=user.VideoOrder.PUBDATE)
+        except Exception as exc:
+            raise ValueError(f"Video collection stopped on page {page_number}. Try refreshing later.") from exc
+        await asyncio.sleep(client.request_delay_seconds())
+        summaries = response.get("list", {}).get("vlist", [])
+        if not summaries:
+            break
+        for summary in summaries[offset:]:
+            bvid = summary.get("bvid")
+            if bvid and bvid in seen:
+                duplicates += 1
+                continue
+            if bvid:
+                seen.add(bvid)
+            item = await video_service.fetch_video_detail(summary, credential)
+            examined += 1
+            await asyncio.sleep(client.request_delay_seconds())
+            check_detail_rejection(item)
+            if has_complete_metrics(item):
+                items.append(item)
+            else:
+                skipped += 1
+            set_progress(f"{action_label}: {len(items)}/{requested} valid videos · {examined} checked · {skipped} invalid skipped.",
+                         percent=15 + int(73 * len(items) / requested), count=len(items))
+            if len(items) == requested:
+                break
+        offset = 0
+        page_number += 1
+    return items, {"requested": requested, "examined": examined, "skipped_invalid": skipped,
+                   "skipped_duplicates": duplicates, "shortfall": max(0, requested - len(items))}
+
+
+def valid_collection(items):
+    valid = [item for item in items if has_complete_metrics(item)]
+    return valid, {"requested": None, "examined": len(items), "skipped_invalid": len(items) - len(valid),
+                   "skipped_duplicates": 0, "shortfall": 0}
+
+
+async def fetch_selected_video_items(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], str, int | None, dict]:
     selected = selected_creator()
     if selected is None:
         raise ValueError("No Creator is selected.")
@@ -137,33 +194,22 @@ async def fetch_selected_video_items(payload: dict[str, Any]) -> tuple[list[dict
         set_progress(f"{action_label}: checking selected Creator video count.", running=True, percent=5, count=0)
         first_page = await uploader.get_videos(pn=1, ps=1, order=user.VideoOrder.PUBDATE)
         total = video_service.video_total_from_response(first_page)
-        if total <= 0:
-            set_progress("No videos were found for the selected Creator.", running=False, percent=100, count=0)
-            return [], "no videos", None
-
+        await asyncio.sleep(client.request_delay_seconds())
         if kind == "position":
             start = max(int(selection.get("start") or 1), 1)
-            end = min(int(selection.get("end") or start), total)
+            end = int(selection.get("end") or start)
             if start > end:
                 raise ValueError("Start number must be smaller than or equal to end number.")
-            summaries = await fetch_web_video_summaries(
-                uploader,
-                end,
-                user.VideoOrder.PUBDATE,
-                progress_label=f"{action_label}: fetching video summaries {start}-{end} of {total}",
-                start_percent=15,
-                end_percent=50,
-            )
-            selected_summaries = summaries[start - 1 : end]
-            items = await enrich_web_video_items(
-                selected_summaries,
-                credential,
-                progress_label=f"{action_label}: fetching selected video details",
-                start_percent=55,
-                end_percent=88,
-            )
+        if total <= 0:
+            set_progress("No videos were found for the selected Creator.", running=False, percent=100, count=0)
+            requested = end - start + 1 if kind == "position" else None
+            return [], "no videos", 0, {"requested": requested, "examined": 0, "skipped_invalid": 0,
+                                       "skipped_duplicates": 0, "shortfall": requested or 0}
+
+        if kind == "position":
+            items, collection = await fetch_valid_video_count(uploader, credential, start, end - start + 1, total, action_label)
             set_progress(f"Selected {len(items)} video(s).", percent=90, count=len(items))
-            return sort_by_published_time(items), f"published-time positions {start}-{end}", total
+            return sort_by_published_time(items), f"{end - start + 1} valid videos starting at published-time position {start}", total, collection
 
         summaries = await fetch_web_video_summaries(
             uploader,
@@ -198,8 +244,9 @@ async def fetch_selected_video_items(payload: dict[str, Any]) -> tuple[list[dict
                 start_percent=60,
                 end_percent=88,
             )
+            items, collection = valid_collection(items)
             set_progress(f"Selected {len(items)} video(s).", percent=90, count=len(items))
-            return sort_by_published_time(items), f"published time {start_raw} to {end_raw}", total
+            return sort_by_published_time(items), f"published time {start_raw} to {end_raw}", total, collection
 
         if kind == "metric":
             field = field_by_name(str(selection.get("metric") or "views"))
@@ -216,6 +263,7 @@ async def fetch_selected_video_items(payload: dict[str, Any]) -> tuple[list[dict
                 start_percent=55,
                 end_percent=85,
             )
+            items, collection = valid_collection(items)
             filtered = [
                 item
                 for item in items
@@ -224,7 +272,7 @@ async def fetch_selected_video_items(payload: dict[str, Any]) -> tuple[list[dict
                 if maximum is None or value < maximum
             ]
             set_progress(f"Selected {len(filtered)} video(s) after metric filtering.", percent=90, count=len(filtered))
-            return sort_by_published_time(filtered), f"{field['label']} range", total
+            return sort_by_published_time(filtered), f"{field['label']} range", total, collection
 
         raise ValueError("Invalid video selection mode.")
     finally:

@@ -46,14 +46,31 @@ export async function stopProgressPolling() {
   activeProgressTarget = null;
 }
 
+export function videoActionPayload() {
+  return { selection: selectionPayload(), reuse_only: true, local_filter: {
+    minimum_views: document.getElementById("local-min-views").value,
+    maximum_views: document.getElementById("local-max-views").value
+  } };
+}
+
 export async function runAction(action, extra = {}, progressTarget = null) {
   const labels = { list: "Listing videos", analysis: "Analyzing videos", division: "Calculating division", plot: "Plotting data" };
   const targets = { list: "videos-progress", analysis: "analysis-progress", division: "division-progress", plot: "plot-progress" };
   startProgressPolling(labels[action] || "Running action", progressTarget || targets[action]);
   try {
-    const data = await postJSON("/api/video-action", { action, selection: selectionPayload(), reuse_only: true, local_filter: { minimum_views: document.getElementById("local-min-views").value, maximum_views: document.getElementById("local-max-views").value }, ...extra });
+    const data = await postJSON("/api/video-action", { action, ...videoActionPayload(), ...extra });
     if (data.dataset) {
-      document.getElementById("dataset-status").textContent = `${data.dataset.reused ? "Reused" : "Fetched"} ${data.dataset.count} rows · Creator ${data.dataset.uid || "sample"} · ${data.dataset.selection} · collected ${new Date(data.dataset.started_at).toLocaleString()} – ${new Date(data.dataset.collected_at).toLocaleString()}. In memory only.`;
+      const collection = data.dataset.collection;
+      const collectionText = collection ? ` · ${collection.examined} checked · ${collection.skipped_invalid} invalid skipped${collection.skipped_duplicates ? ` · ${collection.skipped_duplicates} duplicates skipped` : ""}${collection.requested != null ? ` · ${collection.requested} requested` : ""}${collection.shortfall ? ` · ${collection.shortfall} short: no more available videos` : ""}` : "";
+      document.getElementById("dataset-status").textContent = `${data.dataset.reused ? "Reused" : "Fetched"} ${data.dataset.count} valid videos${collectionText} · Creator ${data.dataset.uid || "sample"} · ${data.dataset.selection} · collected ${new Date(data.dataset.started_at).toLocaleString()} – ${new Date(data.dataset.collected_at).toLocaleString()}. In memory only.`;
+    }
+    const filterStatus = document.getElementById("dataset-filter-status");
+    const counts = data.dataset?.filter_counts;
+    filterStatus.hidden = !counts;
+    if (counts) {
+      const reasons = [];
+      if (counts.view_range) reasons.push(`${counts.view_range} outside the view filter`);
+      filterStatus.textContent = `${counts.fetched} fetched · ${counts.included} included · ${counts.excluded} excluded${reasons.length ? ` (${reasons.join("; ")})` : ""}.`;
     }
     return data;
   } finally {

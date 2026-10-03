@@ -73,7 +73,9 @@ The website imports shared Python modules directly. No frontend build step is re
 - One reusable in-memory dataset with explicit fetching and local view-count filters.
 - Per-video and aggregate ratios, including ratios involving follower counts.
 - Interactive charts with crosshair details, zoom/pan, time ranges, line/bar views,
-  a range slider, and zero-based, comma-separated Y-axis ticks.
+  a range slider, publication-time or equally spaced video-number axes, and zero-based Y-axis ticks.
+- Optional MA5/10/20, EMA10/20, and rolling median5/10 overlays with hover values and PNG exports.
+- Relative20 compares each video with its previous 20-video mean in a separate panel with linked zoom.
 - Manual PNG saving, current-view downloads, saved-plot browsing, and fetching progress.
 
 Aggregate division uses matched rows with a known nonnegative numerator and a
@@ -86,6 +88,15 @@ Generating a plot does not save a file. **Save PNG** saves the full data range t
 Saved Plots; the download icon exports the current chart view to your browser's
 download location. Unsaved data is temporary: the server retains the latest 20
 plot snapshots in memory, and restarting or source-reloading clears them.
+Moving averages use full trailing windows of 5, 10, or 20 valid plotted videos,
+ordered oldest to newest; these windows count videos, not days. The first N−1
+points have no MA value. Overlays use the loaded selection in memory, keep their
+values during zooming, and appear in both PNG save and download output.
+EMA uses weight `2 / (N + 1)` and starts from the first N-video average. Rolling
+medians use the middle value (or middle pair for even windows). Relative20 excludes
+the current video from its baseline, needs 21 videos for its first value, and leaves
+a gap when the baseline is zero. All indicators count valid plotted videos, not days.
+Both chart panels appear in explicit PNG exports; no indicator computation writes files.
 Range presets are relative to the newest selected video's publication date.
 These are current metrics grouped by publication time, not historical snapshots
 of a video's changing metrics. The Y-axis always begins at zero and rescales to
@@ -94,13 +105,75 @@ the visible range using round tick intervals; ratios retain decimal precision.
 ## Dashboard Navigation
 
 - **Explore** groups the Creators library, creator profiles, and single-video lookup.
-- **Workspace** groups Dataset, Statistics, Ratios, Charts, and Saved charts.
-  Collection and local filters share one panel above the dataset tools.
+- **Workspace** groups Dataset, Statistics, Ratios, Charts, Weekly popular, Tasks, and Saved charts.
+  Collection and local filters appear on the Dataset page.
 - **Settings** contains account, sign-in, and request controls.
 
-The dashboard opens on Workspace. Fetching displays dataset rows and collapses
-collection controls. Switching tools keeps your controls and results; returning
+The dashboard opens on Workspace. Fetching updates dataset rows and collapses
+collection controls without changing the active page. Switching tools keeps your controls and results; returning
 to a section restores its last view. Saved charts remain available without a fetch.
+Collection and filter controls appear only on Dataset; Statistics, Ratios, and Charts
+reuse its selection and filters. The creator selector shares the Back button row.
+
+## Running Several Tasks
+
+Open **Workspace → Tasks**, choose Fetch / Refresh, Ratios, Statistics, and/or
+Charts, then click **Run selected tasks**. Selected steps run in that order.
+Configure the range and filters on Dataset, the ratio on Ratios, and the chart
+on Charts; the Tasks page shows those settings and links to each page.
+
+Fetch runs once, then processing steps reuse the collected dataset. Uncheck Fetch
+to process an already loaded dataset. Settings are captured when the batch starts,
+and editing controls stay disabled during execution. Navigation remains available,
+and completion does not change the current page. Results appear on the usual pages.
+
+Each task shows its progress and completion. A failed task stops the batch and
+marks later tasks as skipped, preserving completed results. **Stop after current
+task** lets the active operation finish, then skips the remaining steps.
+Keep the browser tab open until completion. The queue and results stay in memory;
+running a batch does not save charts or create dataset files.
+
+## Random Video Samples
+
+Open **Workspace → Sampling → Random sample**. Enter a search keyword, choose
+the candidate order, and set the sample size and candidate limit (up to 500).
+Optional filters include a Bilibili category ID, publication dates in Beijing time,
+and an inclusive range for any of the six metrics. Metric boundaries support
+`k` and `m`, such as `10k`. Publication end dates include the whole day.
+
+**Collect random sample** checks details across the bounded search pool, skips
+duplicate IDs and incomplete metrics, applies filters, then draws uniformly
+without replacement from all eligible candidates. Invalid entries do not count
+toward the requested sample size. If the pool has too few eligible videos, the
+report shows the actual count and shortfall; increase the candidate limit or
+broaden the filters to collect more.
+
+The report includes the pool scope, seed, collection interval, exclusions,
+individual sampled videos, and the same performance and engagement averages
+as Weekly popular. Reusing a seed repeats the draw only if the eligible pool
+and its order are unchanged. Search results and their ranking define this pool;
+it is not a uniform sample of all Bilibili. These are current accumulated metrics.
+Requests use the configured pacing and stop if the server rejects collection.
+The creator dataset is kept separately. Sample results stay in browser memory;
+no dataset or report files are written.
+
+## Weekly Popular Averages
+
+Open **Workspace → Sampling → Weekly popular** and paste a Bilibili weekly page URL, such as
+`https://www.bilibili.com/v/popular/weekly?num=393`, or enter its issue number.
+**Fetch / Analyze issue** collects the list's metric data and shows totals, means,
+medians, extrema and P90 for views, likes, replies, favorites, coins and shares.
+Engagement includes both the average per-video ratio and the pooled ratio
+(total interactions / total views). Zero-view videos are excluded from ratios.
+
+Videos with incomplete list metrics get a detail request; invalid or unavailable
+videos are skipped, and repeated IDs count once. The page reports included and
+excluded counts and lets you inspect individual videos. It keeps the creator
+dataset separately and does not apply its local filters to the weekly cohort.
+Navigation retains the report in memory; only the fetch button recollects it.
+Metrics describe accumulated performance observed during collection, rather than
+performance earned during the issue's week or averages across all Bilibili videos.
+No weekly dataset or report files are created.
 
 ## Working with a Dataset
 
@@ -109,11 +182,22 @@ division, and plotting reuse that collection in RAM. Changing the Creator, accou
 or fetch selection requires another explicit fetch. The status shows the collection
 interval: values are observed sequentially, not at one simultaneous instant.
 A failed refresh keeps the previous dataset; summary-page failures are reported.
-Individual unavailable video details remain missing rather than becoming zeros.
+Collection skips videos without all six valid, nonnegative whole-number metrics
+(views, likes, replies, favorites, coins, shares); zero remains valid.
+For a number range, Start is the original publication position and End − Start + 1
+is the target number of valid videos. Collection continues to older videos until
+that target is met: requesting 1–100 with two invalid videos checks 102 and keeps 100.
+Repeated video IDs do not count twice. If available videos run out, the status
+reports the shortfall, alongside checked, skipped, and requested counts.
+Date and metric selections skip invalid videos without extending their boundaries.
+Server rejections stop collection and preserve the previous dataset.
+Zero denominators can still prevent ratio plots even when all metrics are present.
 
 Local minimum/maximum view filters are inclusive and run without network requests.
 They only narrow the fetched selection; clear both to include every fetched row.
-In Analysis, changing the distribution metric redraws the chart locally.
+In Statistics, **Chart metric** updates the selected metric's summary, histogram,
+box plot, and unusual values locally. Run **Analyze Dataset** first to enable it.
+The all-metrics comparison remains available in a separate expandable table.
 
 Quartiles and P90 interpolate at `(n - 1) * percentile`. Outliers are values outside
 `Q1 - 1.5 * IQR` and `Q3 + 1.5 * IQR`, flagged only with at least four valid values.
@@ -173,8 +257,12 @@ open temporary localhost ports. They do not sign in or contact Bilibili.
 
 With Playwright and Chrome installed, run `node tests/browser/plots.cjs` for
 offline chart interaction, manual-save, PNG-download, and responsive-layout checks.
+Run `node tests/browser/navigation.cjs` to check that switching pages, Sampling
+tabs and Back navigation preserve scroll position on desktop and mobile.
 Run the analysis browser checks with `node tests/browser/analysis.cjs`. They verify
 local chart changes, filter payloads, and desktop/mobile layout using sample data.
+Run `node tests/browser/batch.cjs` for task ordering, dataset reuse, captured settings,
+result rendering, failure handling, stopping, and responsive Tasks layout.
 
 Set `PLAYWRIGHT_MODULE` to a Playwright package path when it is not in Node's
 normal lookup path. Screenshots are written to a temporary directory.
@@ -223,6 +311,8 @@ Generated runtime files are ignored by Git. Do not commit credentials.
 - `/`: dashboard.
 - `/static/`: public CSS and JavaScript only.
 - `/api/health`: selected Creator, account summary, and request rate.
+- `POST /api/weekly-analysis`: collect a weekly issue and calculate cohort averages.
+- `POST /api/random-sample`: collect a bounded, filtered keyword-search pool and return a random video sample with averages.
 - `/api/creators`: saved Creator list.
 - `/api/progress`: current operation progress.
 - `/api/plots`: saved PNG plot list.

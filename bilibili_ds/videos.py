@@ -28,6 +28,7 @@ async def fetch_video_detail(item: dict[str, Any], credential: Credential | None
     except Exception as exc:
         enriched["stat"] = {}
         enriched["detail_error"] = str(exc)
+        enriched["detail_error_code"] = getattr(exc, "code", None)
         return enriched
 
     stat = info.get("stat") if isinstance(info.get("stat"), dict) else {}
@@ -40,4 +41,7 @@ async def fetch_video_detail(item: dict[str, Any], credential: Credential | None
             "stat": stat,
         }
     )
+    for key in ("owner", "tid", "tname", "duration"):
+        if key in info:
+            enriched[key] = info[key]
     return enriched

@@ -53,3 +53,66 @@ class PlottingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "expired"):
                 plots.save_prepared_plot(first)
             save.assert_not_called()
+
+    def test_number_export_uses_equal_positions_in_chronological_order(self):
+        figure, axis = plotting.plt.subplots()
+        self.addCleanup(plotting.plt.close, figure)
+        points = [{"label": label, "value": value} for label, value in (
+            ("2026-09-30 12:00:00", 30), ("2026-09-01 12:00:00", 10), ("2026-09-02 12:00:00", 20))]
+        with patch.object(plotting.plt, "subplots", return_value=(figure, axis)), \
+                patch.object(figure, "savefig"), patch.object(plots.config.PLOTS_DIR.__class__, "mkdir"):
+            plots.save_web_plot_png({"name": "Example", "uid": "42"}, "all", "Views", "Views", points, axis_mode="number")
+        self.assertEqual(list(axis.lines[0].get_xdata()), [1, 2, 3])
+        self.assertEqual(list(axis.lines[0].get_ydata()), [10, 20, 30])
+        self.assertIn("Video number", axis.get_xlabel())
+
+    def test_moving_averages_have_full_trailing_windows(self):
+        self.assertEqual(plots.moving_average([1, 2, 3, 4, 5, 6], 5), [None, None, None, None, 3, 4])
+        self.assertEqual(plots.moving_average([0] * 6, 5), [None] * 4 + [0, 0])
+        self.assertEqual(plots.moving_average([9, 2], 5), [None, None])
+        self.assertEqual(plots.moving_average([], 5), [])
+        self.assertEqual(plots.moving_average([100, 0, 0, 0, 0, 0], 5), [None] * 4 + [20, 0])
+        for period in (5, 10, 20):
+            result = plots.moving_average(list(range(1, 31)), period)
+            self.assertEqual(result[period - 1], (period + 1) / 2)
+            self.assertEqual(result[-1], (61 - period) / 2)
+        for invalid in (0, -1, True, 1.5):
+            with self.assertRaises(ValueError):
+                plots.moving_average([1, 2], invalid)
+
+    def test_moving_average_export_and_window_validation(self):
+        self.assertEqual(plots.normalize_ma_periods([10, 5, 5]), (5, 10))
+        for invalid in ([True], [7], ["5"], "5", {}):
+            with self.assertRaises(ValueError):
+                plots.normalize_ma_periods(invalid)
+        figure, axis = plotting.plt.subplots()
+        self.addCleanup(plotting.plt.close, figure)
+        points = [{"label": f"2026-09-{index:02d} 12:00:00", "value": index} for index in range(10, 0, -1)]
+        with patch.object(plotting.plt, "subplots", return_value=(figure, axis)), \
+                patch.object(figure, "savefig"), patch.object(plots.config.PLOTS_DIR.__class__, "mkdir"):
+            plots.save_web_plot_png({"name": "Example", "uid": "42"}, "all", "Views", "Views", points,
+                                   axis_mode="number", ma_periods=[5, 10, 20])
+        self.assertEqual([line.get_label() for line in axis.lines], ["Views", "MA5", "MA10"])
+        self.assertEqual(list(axis.lines[1].get_ydata()), [None] * 4 + [3, 4, 5, 6, 7, 8])
+        self.assertEqual(list(axis.lines[2].get_ydata()), [None] * 9 + [5.5])
+
+    def test_additional_indicators_export_to_separate_panel(self):
+        figure, (axis, relative) = plotting.plt.subplots(2, 1, sharex=True)
+        self.addCleanup(plotting.plt.close, figure)
+        points = [{"label": f"2026-09-{index + 1:02d} 12:00:00", "value": value}
+                  for index, value in enumerate([10] * 20 + [30])]
+        with patch.object(plotting.plt, "subplots", return_value=(figure, (axis, relative))), \
+                patch.object(figure, "savefig"), patch.object(plots.config.PLOTS_DIR.__class__, "mkdir"):
+            plots.save_web_plot_png({"name": "Example", "uid": "42"}, "all", "Views", "Views", points,
+                                   axis_mode="number", indicators=["ema10", "ema20", "median5", "median10", "relative20"])
+        lines = {line.get_label(): line for line in axis.lines}
+        self.assertEqual(set(lines), {"Views", "EMA10", "EMA20", "Median5", "Median10"})
+        self.assertAlmostEqual(lines["EMA10"].get_ydata()[-1], 10 + 20 * 2 / 11)
+        self.assertEqual(lines["Median10"].get_ydata()[-1], 10)
+        self.assertEqual(list(relative.lines[0].get_ydata()), [None] * 20 + [3])
+        self.assertEqual(len(figure.axes), 2)
+        self.assertTrue(axis.get_shared_x_axes().joined(axis, relative))
+        self.assertEqual(plots.normalize_indicators(["ema20", "ema10", "ema10"]), ("ema10", "ema20"))
+        for invalid in ([True], [5], ["ema999"], "ema10", {}):
+            with self.assertRaises(ValueError):
+                plots.normalize_indicators(invalid)

@@ -27,6 +27,8 @@ from bilibili_ds.web.creators import add_web_creator, load_web_creators, select_
 from bilibili_ds.web.http import json_bytes, read_json_body
 from bilibili_ds.web.plots import plot_entries, save_prepared_plot
 from bilibili_ds.web.videos import fetch_single_video, selected_creator_detail
+from bilibili_ds.web.weekly import fetch_weekly_analysis
+from bilibili_ds.web.sampling import fetch_random_sample
 
 
 class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
@@ -172,6 +174,8 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
             "/api/creators/add",
             "/api/video-lookup",
             "/api/video-action",
+            "/api/weekly-analysis",
+            "/api/random-sample",
             "/api/plots/save",
             "/api/request-frequency",
             "/api/sign-out",
@@ -209,8 +213,14 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
             if path == "/api/video-action":
                 self.send_json(asyncio.run(execute_video_action(data)))
                 return
+            if path == "/api/weekly-analysis":
+                self.send_json(asyncio.run(fetch_weekly_analysis(data)))
+                return
+            if path == "/api/random-sample":
+                self.send_json(asyncio.run(fetch_random_sample(data)))
+                return
             if path == "/api/plots/save":
-                self.send_json(save_prepared_plot(data.get("plot_id")))
+                self.send_json(save_prepared_plot(data.get("plot_id"), data.get("axis_mode", "time"), data.get("ma_periods"), data.get("indicators")))
                 return
             if path == "/api/request-frequency":
                 value = float(data.get("value"))

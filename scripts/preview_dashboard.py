@@ -9,12 +9,15 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bilibili_ds.distributions import analyse_dataset
+from bilibili_ds.weekly import summarize_weekly_items
+from bilibili_ds.sampling import parse_sample_options, sample_candidates
 from bilibili_ds.plotting import plt
 from bilibili_ds.web.assets import dashboard_html
 from bilibili_ds.web.http import read_json_body
 from bilibili_ds.web.routes import BilibiliDataScienceHandler
-from bilibili_ds.web.serializers import VIDEO_FIELDS, extract_bvid
+from bilibili_ds.web.serializers import VIDEO_FIELDS, extract_bvid, serialize_video
 from bilibili_ds.web.server import DashboardHTTPServer
+from bilibili_ds.web.weekly import parse_weekly_source
 
 
 VIDEO = {
@@ -79,6 +82,35 @@ class PreviewHandler(BilibiliDataScienceHandler):
                 self.send_error_json(400, str(exc))
                 return
             self.send_json({"video": VIDEO})
+        elif path == "/api/random-sample":
+            try:
+                options = parse_sample_options(data)
+                raw = [{"title": f"Sample video {i + 1}", "bvid": f"random-{i}", "pubdate": int(datetime(2026, 9, 1).timestamp()) + i * 3600,
+                        "owner": {"mid": i % 4, "name": f"Creator {i % 4 + 1}"},
+                        "stat": {field["stat_key"]: (i + 1) * 100 if field["field"] == "views" else i * 2 for field in VIDEO_FIELDS}}
+                       for i in range(options["pool_size"])]
+                sampled, summary = sample_candidates(raw, options)
+            except ValueError as exc:
+                self.send_error_json(400, str(exc))
+                return
+            summary["sampling"].update({"checked": len(raw), "pages": (len(raw) + 19) // 20})
+            self.send_json({**summary, "started_at": "2026-10-03T00:00:00Z", "collected_at": "2026-10-03T00:00:01Z",
+                "videos": [{**serialize_video(row), "creator": row["owner"]["name"]} for row in sampled]})
+        elif path == "/api/weekly-analysis":
+            try:
+                issue = parse_weekly_source(data.get("source"))
+            except ValueError as exc:
+                self.send_error_json(400, str(exc))
+                return
+            raw = [{"title": f"Weekly video {i + 1}", "bvid": f"weekly-{i}", "pubdate": int(datetime(2026, 9, 1).timestamp()) + i * 86400,
+                    "owner": {"mid": i % 4, "name": f"Creator {i % 4 + 1}"},
+                    "stat": {field["stat_key"]: (i + 1) * 100 if field["field"] == "views" else i * 2 for field in VIDEO_FIELDS}}
+                   for i in range(24)]
+            _, summary = summarize_weekly_items(raw)
+            self.send_json({**summary, "issue": {"number": issue, "name": f"Weekly issue {issue}", "subject": "Sample popular videos",
+                "url": f"https://www.bilibili.com/v/popular/weekly?num={issue}"},
+                "started_at": "2026-10-03T00:00:00Z", "collected_at": "2026-10-03T00:00:01Z",
+                "videos": [{**serialize_video(row), "creator": row["owner"]["name"]} for row in raw]})
         elif path == "/api/video-action":
             self.send_json({
                 "videos": VIDEOS, "points": POINTS, "y_label": "Views", "plot_id": "sample", "selected_creator": CREATOR, "selection": "All videos",

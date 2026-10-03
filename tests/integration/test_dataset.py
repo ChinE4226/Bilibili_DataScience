@@ -13,7 +13,7 @@ class DatasetTests(unittest.IsolatedAsyncioTestCase):
         self.creator = self.stack.enter_context(patch.object(dataset, 'selected_creator', return_value={'uid': '42'}))
         self.account = self.stack.enter_context(patch.object(dataset.accounts, 'active_account_id', return_value=None))
         self.items = [{'bvid': 'A', 'stat': {'view': 100, 'like': 10}}, {'bvid': 'B', 'stat': {'view': 500}}, {'bvid': 'C', 'stat': {'like': 30}}]
-        self.fetch = self.stack.enter_context(patch.object(actions, 'fetch_selected_video_items', new_callable=AsyncMock, return_value=(self.items, 'sample', 3)))
+        self.fetch = self.stack.enter_context(patch.object(actions, 'fetch_selected_video_items', new_callable=AsyncMock, return_value=(self.items, 'sample', 3, {})))
 
     async def test_refresh_reuse_and_local_filter(self):
         first = await actions.execute_video_action({'action': 'list', 'refresh': True})
@@ -58,3 +58,15 @@ class DatasetTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(ValueError, 'Another video operation'):
                 await actions.execute_video_action({'action': 'list'})
         self.fetch.assert_not_awaited()
+
+    async def test_collection_counts_survive_reuse_and_view_filter(self):
+        collection = {'requested': 3, 'examined': 5, 'skipped_invalid': 2, 'shortfall': 0}
+        self.fetch.return_value = (self.items, 'sample', 5, collection)
+        await actions.execute_video_action({'action': 'list', 'refresh': True})
+        result = await actions.execute_video_action({'action': 'analysis', 'reuse_only': True,
+            'local_filter': {'minimum_views': 200}})
+        self.assertEqual(result['dataset']['collection'], collection)
+        self.assertEqual(result['dataset']['count'], 3)
+        self.assertEqual(result['count'], 1)
+        self.assertEqual(result['dataset']['filter_counts']['excluded'], 2)
+        self.fetch.assert_awaited_once()

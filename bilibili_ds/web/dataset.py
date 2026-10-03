@@ -26,10 +26,11 @@ async def acquire(payload, fetch):
     if payload.get("reuse_only") and not payload.get("refresh"):
         raise ValueError("Click Fetch / Refresh to load this Creator and selection into memory first.")
     started = datetime.now(timezone.utc).isoformat()
-    data = await fetch(payload)
+    items, label, total, collection = await fetch(payload)
+    data = (items, label, total)
     if context_key(payload) != key:
         raise ValueError("Creator or account changed during collection. Fetch again.")
     meta = {"started_at": started, "collected_at": datetime.now(timezone.utc).isoformat(),
-            "count": len(data[0]), "selection": data[1], "uid": key[0]}
+            "count": len(data[0]), "selection": data[1], "uid": key[0], "collection": collection}
     CURRENT = {"key": key, "data": deepcopy(data), "meta": meta}
     return data, {**meta, "reused": False}

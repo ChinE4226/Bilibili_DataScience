@@ -17,6 +17,8 @@ Bilibili_DataScience/
         videos.py           Video detail requests and response handling
         selection.py        Sorting, parsing, and filters
         analysis.py         Statistics and ratios
+        weekly.py           Weekly cohort averages and engagement eligibility
+        sampling.py         Filter validation and random draws from eligible candidates
         plotting.py         Headless PNG rendering
         web/                Local HTTP interface
             __main__.py     Supervisor or worker startup
@@ -27,6 +29,8 @@ Bilibili_DataScience/
             accounts.py     Browser account workflows
             creators.py     Browser creator selection and storage adapter
             videos.py       Browser fetching and selection
+            weekly.py       Weekly source validation and collection
+            sampling.py     Bounded search collection and refreshed detail metrics
             actions.py      Browser analysis, ratios, and plotting
             serializers.py Browser-facing fields and result formats
             plots.py       Browser plot rendering and listings
@@ -45,6 +49,7 @@ Bilibili_DataScience/
             ui.js           Common formatting and action feedback
             selection.js    Selection form values
             progress.js     Operation progress polling
+            batch.js        Sequential task execution and queue feedback
             dev_reload.js  Source-change refresh and form restoration
             views/          Accounts, creators, videos, and plots
         vendor/             ECharts 5.6.0 and selected Lucide 1.8.0 modules
@@ -85,6 +90,12 @@ Web-specific creator selection rules and result formats live in `web/`.
   selection. Explicit refresh replaces it only on success. A nonblocking lock
   rejects overlapping video operations. `reuse_only` requests never fetch silently.
   Local view filters run on a copy and do not mutate the retained collection.
+  Collection metadata tracks requested, examined, skipped and shortfall counts.
+  `web/videos.py` pages forward from the requested publication position until it
+  collects End − Start + 1 unique videos with six valid metrics or runs out of
+  available videos. It retains only valid rows. Date/metric ranges retain their
+  boundaries. Request pacing applies to replacement requests too; summary errors
+  and recognized server rejection codes abort the refresh.
 - `distributions.py` contains pure quantile, histogram, IQR, quality, and engagement
   calculations. `static/js/views/analysis.js` renders tables and inline SVG charts
   without PNG generation or disk writes.
@@ -130,7 +141,19 @@ visible-range Y-axis scaling, and manual saving. Valid dated points are sorted
 chronologically and use a true time axis; undated points use a category axis.
 ResizeObserver handles layout and tab changes. Exports from the download icon
 capture the current browser chart; Saved Plots contains full-range Python PNGs.
-Both renderers use zero-based axes with 1/2/5-based tick intervals.
+The browser legend sits below the canvas; downloads append it as an in-memory footer.
+Saved PNGs reserve a separate figure footer for the legend.
+Both renderers use zero-based axes with 1/2/5-based tick intervals. MA5/MA10/MA20
+use full trailing windows over valid plotted points, with nulls before the first
+complete window. Zooming scales against visible raw and MA values without
+recomputing windows. Save requests include `ma_periods`; the server validates and
+normalizes these, and caches exports by axis mode, MA windows, and additional
+`indicators`. `bilibili_ds/indicators.py` and `static/js/indicators.js` implement the
+same pure trailing calculations: seeded EMA, full-window median, and relative
+performance against the preceding 20 observations. Zero baselines produce gaps.
+Relative20 uses a separate ECharts instance with bidirectional zoom synchronization;
+PNG downloads combine both panels in memory and Python exports share their X-axis.
+The main plot keeps its height when the relative panel is enabled.
 The vendored modules require no frontend build or external CDN access. Preserve
 upstream headers and `docs/licenses/` when updating them.
 
@@ -144,17 +167,57 @@ introducing imports from shared calculations back into the web layer.
 ## Dashboard Organization
 
 Primary navigation groups Explore (Creators library, creator profile and single video), Workspace
-(dataset rows, statistics, custom ratios, charts, saved charts), and Settings.
+(dataset rows, statistics, custom ratios, charts, sampling, tasks, saved charts), and Settings.
 `app.js` maps each tool to a section and remembers its last active view in memory.
-One collection/filter panel stays above the Workspace tools; it is hidden for
-saved charts and other sections. A successful fetch displays rows and collapses
-collection controls. Navigation itself does not fetch data. Live reload restores
+Before switching panels or Sampling tabs, `ui.preservePageHeight()` reserves enough
+minimum height in the main element to keep the current viewport reachable. Main
+content disables scroll anchoring so replacing a panel does not shift the page.
+The minimum is recalculated on each switch; content can grow naturally, and
+navigating after scrolling to the top releases any spare space.
+The collection/filter panel appears only on Dataset; other tools reuse its settings.
+A successful fetch updates rows and collapses collection controls without changing
+the active page. Navigation itself does not fetch data. Live reload restores
 the active tool using the main element's `data-active-panel` attribute.
 
-Quick creator switching uses an anchored dropdown with its own search input.
+Quick creator switching uses an anchored dropdown on the Back button row with its own search input.
 The Creators panel handles browsing and adding saved identities. Both lists use
 `views/creators.js`, and selection updates do not reload unrelated sections.
 `app.js` keeps a RAM-only menu history. Blank clicks on bare layout surfaces and
 an explicit Back button pop that history. An open dropdown takes precedence:
 outside clicks dismiss it without navigation. Controls, charts, and results are
 excluded. Page changes retain dataset filters and fetched results.
+
+The Tasks page queues Fetch, Ratios, Statistics and Charts in dependency order.
+`app.js` shares task definitions and result renderers between individual actions
+and `batch.js`. A batch captures the selection, filters and each task's options
+before sending sequential `/api/video-action` requests under one browser action
+guard. Only its fetch step sets `refresh`; later steps keep `reuse_only` enabled.
+Inputs and configuration buttons are disabled while the queue runs. Navigation
+stays available. Failure or a stop request skips subsequent tasks; stopping lets
+the current request complete. The queue lives in the browser's memory and requires
+the tab to remain open. It does not add an endpoint, persistent queue or disk writes.
+
+Sampling groups Random sample and Weekly popular in local tabs. Random sample
+uses `POST /api/random-sample`; `web/sampling.py` searches video-only candidates
+with the installed SDK, at most `ceil(pool_size / 20)` search pages and at most
+500 candidate entries. Every unique BVID gets paced detail enrichment; duplicate
+entries need no repeated detail request. `sampling.py` rejects incomplete metrics,
+applies inclusive metric boundaries and Beijing-time publication dates, and uses
+a request-local seeded PRNG to sample uniformly without replacement across the
+entire eligible pool. A shortfall is reported instead of silently increasing the
+candidate limit. Search ranking limits the population represented by the sample.
+The report includes candidate, detail, duplicate, invalid, filtered, eligible,
+sampled and requested counts, seed and collection times. The shared cohort
+renderer shows summaries and engagement ratios. Collection shares `dataset.LOCK`
+and never modifies `dataset.CURRENT`; it stops on API rejection. Successful
+results remain in the browser when navigating; a failed request retains the old
+report. No new dataset, cache or report files are created.
+
+Weekly popular uses `POST /api/weekly-analysis` with an issue number or a validated
+Bilibili weekly-page URL. `web/weekly.py` calls the installed library's weekly API;
+it never requests an arbitrary user-provided URL. Complete list metrics avoid
+per-video requests; incomplete entries use the existing paced detail fetcher.
+It shares the video-operation lock but does not modify `dataset.CURRENT`.
+`weekly.py` deduplicates the cohort, excludes invalid records, and calculates count
+summaries and equal-weight versus pooled engagement ratios. The browser retains
+the report when navigating or when a later fetch fails. No report is saved to disk.

@@ -30,6 +30,8 @@
         <button data-panel="analysis">Statistics</button>
         <button data-panel="division">Ratios</button>
         <button data-panel="plot">Charts</button>
+        <button data-panel="sampling">Sampling</button>
+        <button data-panel="tasks">Tasks</button>
         <button data-panel="saved-plots">Saved charts</button>
       </nav>
       <nav class="tool-nav" aria-label="Explore tools" data-tools="explore" hidden>
@@ -37,21 +39,25 @@
         <button data-panel="creator">Creator profile</button>
         <button data-panel="single-video">Single video</button>
       </nav>
-          <div class="creator-switcher">
-            <button id="open-library" type="button" aria-expanded="false" aria-controls="creator-menu">Choose creator</button>
-            <div id="creator-menu" class="creator-menu" hidden>
-              <label>Find a creator <input id="creator-search" type="search" placeholder="Name or UID" autocomplete="off"></label>
-              <div id="creator-menu-feedback" class="progress" role="status" aria-live="polite" hidden></div>
-              <div id="creator-options" class="creator-options"></div>
-              <button id="manage-creators" type="button">Add / manage creators</button>
-            </div>
-          </div>
       </div>
-      <div class="menu-history"><button id="menu-back" type="button" hidden>← Back</button><span id="menu-back-hint" class="muted" hidden>Click unused page space to go back.</span></div>
+      <div class="menu-history">
+        <button id="menu-back" type="button" disabled>← Back</button>
+        <span id="menu-back-hint" class="muted" hidden>Click unused page space to go back.</span>
+        <div class="creator-switcher">
+          <button id="open-library" type="button" aria-expanded="false" aria-controls="creator-menu">Choose creator</button>
+          <div id="creator-menu" class="creator-menu" hidden>
+            <label>Find a creator <input id="creator-search" type="search" placeholder="Name or UID" autocomplete="off"></label>
+            <div id="creator-menu-feedback" class="progress" role="status" aria-live="polite" hidden></div>
+            <div id="creator-options" class="creator-options"></div>
+            <button id="manage-creators" type="button">Add / manage creators</button>
+          </div>
+        </div>
+      </div>
       <section class="selection-card" aria-label="Working dataset">
         <div class="dataset-heading"><div><h2>Working dataset</h2>
         <p id="dataset-status" class="muted" role="status">Choose a creator and video range, then fetch your dataset.</p></div>
         <button id="fetch-dataset" type="button" class="primary">Fetch / Refresh</button></div>
+        <p id="dataset-filter-status" class="muted" role="status" hidden></p>
         <details id="dataset-source" open>
         <summary>1. Collection range <span class="muted">· Fetch from Bilibili</span></summary>
         <div class="grid">
@@ -76,11 +82,12 @@
             <label>Less than <input id="metric-max" placeholder="200k"></label>
           </div>
         </div>
+        <p class="muted">Number ranges collect End − Start + 1 valid videos, starting at the chosen publication position. Videos with missing or invalid metrics are skipped and replaced by later videos. Time and metric ranges stay within their boundaries.</p>
         </details>
         <details id="dataset-filters">
-        <summary>2. Filter dataset <span id="filter-summary" class="muted">· All fetched rows</span></summary>
+        <summary>2. Filter dataset <span id="filter-summary" class="muted">· All collected rows</span></summary>
         <div class="row"><label>Minimum views (inclusive)<input id="local-min-views" type="number" min="0" step="1" placeholder="No minimum"></label><label>Maximum views (inclusive)<input id="local-max-views" type="number" min="0" step="1" placeholder="No maximum"></label></div>
-        <p class="muted">Local filters apply to the fetched selection without requests. Leave blank to include all fetched rows.</p>
+        <p class="muted">Collection includes only videos with valid views, likes, replies, favorites, coins, and shares. Zero is valid. View limits narrow the collected dataset without fetching replacements. Run a tool to apply.</p>
         </details>
         <p class="dataset-help muted">Changing creator, account, or collection range requires a new fetch. Filters reuse the loaded rows. Restarting clears the dataset.</p>
         <div id="progress" class="progress" role="status" hidden>Idle.</div>
@@ -88,8 +95,6 @@
       <section id="panel-creators" class="panel">
         <div class="page-heading"><div><h2>Creators</h2><p class="muted">Find, select, or add a creator for your workspace.</p></div></div>
         <p id="selected" class="muted" role="status">No creator selected.</p>
-        <label>Search saved creators <input id="creator-library-search" type="search" placeholder="Name or UID"></label>
-        <div id="creators" class="creator-list"></div>
         <details id="add-creator-form" class="add-creator">
           <summary>Add creator</summary>
           <div class="grid">
@@ -98,6 +103,9 @@
             <button id="add-creator">Add and Select</button>
           </div>
         </details>
+        <label>Search saved creators <input id="creator-library-search" type="search" placeholder="Name or UID" aria-describedby="creator-search-count"></label>
+        <p id="creator-search-count" class="muted" role="status" aria-live="polite"></p>
+        <div id="creators" class="creator-list"></div>
       </section>
       <section id="panel-creator" class="panel">
         <div class="page-heading"><h2>Creator profile</h2><button id="load-creator-detail" class="primary">View Selected Creator Detail</button></div>
@@ -120,10 +128,72 @@
         <div id="videos-progress" class="progress panel-progress" role="status" hidden></div>
         <div id="videos-result" class="result"></div>
       </section>
+      <section id="panel-sampling" class="panel">
+        <div class="page-heading"><div><h2>Video sampling</h2><p class="muted">Collect a filtered random sample or a weekly popular list, then compare average performance.</p></div></div>
+        <div class="sampling-modes" role="tablist" aria-label="Sampling source">
+          <button id="sample-mode-random" type="button" role="tab" aria-selected="true" aria-controls="sampling-random" data-sampling-mode="random">Random sample</button>
+          <button id="sample-mode-weekly" type="button" role="tab" aria-selected="false" aria-controls="sampling-weekly" tabindex="-1" data-sampling-mode="weekly">Weekly popular</button>
+        </div>
+        <div id="sampling-random" role="tabpanel" aria-labelledby="sample-mode-random">
+          <div class="sampling-fields">
+            <label>Search keyword<input id="sample-keyword" type="text" maxlength="100" placeholder="e.g. photography"></label>
+            <label>Candidate order<select id="sample-order"><option value="pubdate">Newest first</option><option value="totalrank">Search relevance</option><option value="click">Most viewed</option></select></label>
+            <label>Sample size<input id="sample-size" type="number" min="1" max="500" step="1" value="100"></label>
+            <label>Candidate limit<input id="sample-pool-size" type="number" min="1" max="500" step="1" value="200"></label>
+            <label>Published from · Beijing time<input id="sample-published-start" type="date"></label>
+            <label>Published through · Beijing time<input id="sample-published-end" type="date"></label>
+            <label>Filter metric<select id="sample-metric"><option value="views">Views</option><option value="likes">Likes</option><option value="replies">Replies</option><option value="favorites">Favorites</option><option value="coins">Coins</option><option value="shares">Shares</option></select></label>
+            <label>Minimum · inclusive<input id="sample-minimum" type="text" inputmode="decimal" placeholder="Optional, e.g. 10k"></label>
+            <label>Maximum · inclusive<input id="sample-maximum" type="text" inputmode="decimal" placeholder="Optional"></label>
+            <label>Category ID<input id="sample-category-id" type="text" inputmode="numeric" placeholder="Optional Bilibili category ID"></label>
+            <label>Random seed<input id="sample-seed" type="text" maxlength="128" placeholder="Blank generates a new seed"></label>
+          </div>
+          <p class="muted">Randomly draws unique videos after checking the whole candidate pool and filtering complete metrics. Zero is valid. Search order and candidate limit define the pool; this is not a random sample of all Bilibili. The same seed repeats the draw only when the eligible pool is unchanged.</p>
+          <div class="actions"><button id="fetch-random-sample" type="button" class="primary">Collect random sample</button></div>
+          <div id="sample-progress" class="progress panel-progress" role="status" hidden></div>
+          <div id="sample-result" class="result"><p class="empty-state">No random sample collected.</p></div>
+        </div>
+        <div id="sampling-weekly" role="tabpanel" aria-labelledby="sample-mode-weekly" hidden>
+        <h3>Weekly popular performance</h3>
+        <div class="row controls"><label>Weekly page URL or issue number
+          <input id="weekly-source" type="text" value="https://www.bilibili.com/v/popular/weekly?num=393" placeholder="Paste a weekly page link or enter an issue number">
+        </label><button id="fetch-weekly" type="button" class="primary">Fetch / Analyze issue</button></div>
+        <p class="muted">Metrics are observed during collection, including older videos' accumulated performance. They do not represent views or interactions earned during that week.</p>
+        <div id="weekly-progress" class="progress panel-progress" role="status" hidden></div>
+        <div id="weekly-result" class="result"><p class="empty-state">No weekly issue collected.</p></div>
+        </div>
+      </section>
+      <section id="panel-tasks" class="panel">
+        <div class="page-heading"><div><h2>Run several tasks</h2><p class="muted">Choose your steps and start once. Each step runs after the previous one finishes.</p></div></div>
+        <p id="batch-context" class="muted"></p>
+        <fieldset class="batch-tasks"><legend>Tasks · run from top to bottom</legend>
+          <div class="batch-task" data-batch-row="fetch">
+            <label><input id="batch-fetch" type="checkbox" checked><span><strong>Fetch / Refresh dataset</strong><span id="batch-config-fetch" class="muted"></span></span></label>
+            <button type="button" data-config-panel="videos">Set range / filters</button><span id="batch-state-fetch" class="batch-task-state">Queued</span>
+          </div>
+          <div class="batch-task" data-batch-row="division">
+            <label><input id="batch-division" type="checkbox" checked><span><strong>Calculate ratios</strong><span id="batch-config-division" class="muted"></span></span></label>
+            <button type="button" data-config-panel="division">Set ratio</button><span id="batch-state-division" class="batch-task-state">Queued</span>
+          </div>
+          <div class="batch-task" data-batch-row="analysis">
+            <label><input id="batch-analysis" type="checkbox" checked><span><strong>Calculate statistics</strong><span id="batch-config-analysis" class="muted">Metric distributions, unusual values, and engagement</span></span></label>
+            <button type="button" data-config-panel="analysis">View statistics</button><span id="batch-state-analysis" class="batch-task-state">Queued</span>
+          </div>
+          <div class="batch-task" data-batch-row="plot">
+            <label><input id="batch-plot" type="checkbox"><span><strong>Generate chart</strong><span id="batch-config-plot" class="muted"></span></span></label>
+            <button type="button" data-config-panel="plot">Set chart</button><span id="batch-state-plot" class="batch-task-state">Not selected</span>
+          </div>
+        </fieldset>
+        <p class="muted">Processing uses the same dataset and view filters. Uncheck Fetch to reuse your loaded dataset. Results appear on their usual pages. Keep this tab open until the batch finishes.</p>
+        <div class="batch-actions"><button id="run-batch" type="button" class="primary">Run selected tasks</button><button id="stop-batch" type="button" disabled>Stop after current task</button></div>
+        <p id="batch-status" role="status" aria-live="polite">Ready.</p>
+        <div id="batch-progress" class="progress panel-progress" role="status" hidden></div>
+      </section>
       <section id="panel-analysis" class="panel">
         <div class="page-heading"><div><h2>Statistics &amp; engagement</h2><p class="muted">Understand the distribution, spot unusual results, and compare interaction ratios.</p></div></div>
-        <div class="row controls"><label>Distribution metric <select id="analysis-field"></select></label>
+        <div class="row controls"><label>Chart metric <select id="analysis-field" disabled aria-describedby="analysis-metric-help"></select></label>
         <button id="run-analysis" class="primary">Analyze Dataset</button></div>
+        <p id="analysis-metric-help" class="muted">Analyze the dataset first, then choose a metric to update its summary, histogram, box plot, and unusual values instantly.</p>
         <div id="analysis-progress" class="progress panel-progress" role="status" hidden></div>
         <div id="analysis-result" class="result"></div>
       </section>
@@ -144,12 +214,18 @@
         <div id="division-result" class="result"></div>
       </section>
       <section id="panel-plot" class="panel">
-        <div class="page-heading"><div><h2>Charts</h2><p class="muted">Explore metrics by publication date and save a chart when you need it.</p></div></div>
+        <div class="page-heading"><div><h2>Charts</h2><p class="muted">Explore metrics by publication date or evenly spaced video numbers.</p></div></div>
         <div class="row controls">
           <label>Plot mode
             <select id="plot-mode">
               <option value="field">One video metric</option>
               <option value="quotient">Quotient</option>
+            </select>
+          </label>
+          <label>X-axis
+            <select id="plot-axis">
+              <option value="time">Published time</option>
+              <option value="number">Video number (equal spacing)</option>
             </select>
           </label>
           <label class="plot-field-control">Video metric <select id="plot-field"></select></label>
@@ -180,7 +256,31 @@
               <button id="download-plot" class="icon-button" title="Download current chart view" aria-label="Download current chart view" disabled><span data-plot-icon="download"></span></button>
             </div>
           </div>
+          <div class="plot-indicators" role="group" aria-label="Moving averages" aria-describedby="plot-ma-help">
+            <span class="muted">Moving averages</span>
+            <button type="button" data-ma-period="5" aria-pressed="false" disabled><span class="ma-swatch ma5" aria-hidden="true"></span>MA5</button>
+            <button type="button" data-ma-period="10" aria-pressed="false" disabled><span class="ma-swatch ma10" aria-hidden="true"></span>MA10</button>
+            <button type="button" data-ma-period="20" aria-pressed="false" disabled><span class="ma-swatch ma20" aria-hidden="true"></span>MA20</button>
+          </div>
+          <p id="plot-ma-help" class="muted">Each MA averages the current and previous plotted videos: 5, 10, or 20 values, oldest to newest. Lines start only after a full window; zooming keeps the same averages.</p>
+          <div class="plot-indicators" role="group" aria-label="Additional analysis" aria-describedby="plot-analysis-help">
+            <span class="muted">Trend &amp; typical performance</span>
+            <button type="button" data-indicator="ema10" aria-pressed="false" disabled>EMA10</button>
+            <button type="button" data-indicator="ema20" aria-pressed="false" disabled>EMA20</button>
+            <button type="button" data-indicator="median5" aria-pressed="false" disabled>Median5</button>
+            <button type="button" data-indicator="median10" aria-pressed="false" disabled>Median10</button>
+            <button type="button" data-indicator="relative20" aria-pressed="false" disabled>Relative20 · separate panel</button>
+          </div>
+          <details class="plot-indicator-help"><summary>About these indicators</summary>
+          <p id="plot-analysis-help" class="muted">EMA gives recent videos more weight, starting from the first full-window mean. Median shows the middle value in each window, reducing the influence of viral spikes. Relative20 compares each video with the mean of the previous 20, excluding itself: 1.5× means 50% above that baseline. Zero baselines have no ratio.</p></details>
+          <p id="plot-ma-status" class="muted" role="status" hidden></p>
           <div id="plot-chart" class="chart" tabindex="0" aria-label="Chart"></div>
+          <ul id="plot-legend" class="plot-legend" aria-label="Chart lines" hidden></ul>
+          <section id="plot-relative-panel" hidden aria-label="Relative performance">
+            <h3>Relative performance · previous 20 videos</h3>
+            <p class="muted">1× = previous average. Uses the same visible range as the main chart.</p>
+            <div id="plot-relative-chart" class="relative-chart" aria-label="Relative performance chart"></div>
+          </section>
           <div id="plot-inspection" class="plot-inspection"></div>
         </div>
         <details class="plot-data"><summary id="plot-data-label">Data</summary><div id="plot-result" class="result"></div></details>

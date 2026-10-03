@@ -44,19 +44,13 @@ export function renderCreatorDetail(detail) {
 }
 
 export function renderSavedCreators() {
-  const query = document.getElementById("creator-library-search").value.trim().toLowerCase();
-  const filtered = uiState.savedCreators.filter((creator) => {
-    const name = String(creator.name || "").toLowerCase();
-    const uid = String(creator.uid || "").toLowerCase();
-    return !query || name.includes(query) || uid.includes(query);
-  });
-  document.getElementById("creators").innerHTML = filtered.map((creator) => `
-    <div class="creator ${uiState.selectedCreator && uiState.selectedCreator.uid === creator.uid ? "active" : ""}">
+  document.getElementById("creators").innerHTML = uiState.savedCreators.map((creator) => `
+    <div class="creator ${uiState.selectedCreator && uiState.selectedCreator.uid === creator.uid ? "active" : ""}" data-search="${escapeHTML(`${creator.name || ""} ${creator.uid || ""}`.toLowerCase())}">
       <strong>${escapeHTML(creator.name)}</strong>
       <span class="muted">UID ${escapeHTML(creator.uid)}</span>
       <button type="button" data-uid="${escapeHTML(creator.uid)}">Select</button>
     </div>
-  `).join("") || `<p class="muted">No saved Creators match this search.</p>`;
+  `).join("") + `<p id="creator-search-empty" class="muted" hidden>No saved creators match this search.</p>`;
   document.querySelectorAll("button[data-uid]").forEach((button) => {
     button.addEventListener("click", () => {
       if (button.dataset.uid === uiState.selectedCreator?.uid) return;
@@ -64,6 +58,21 @@ export function renderSavedCreators() {
     });
   });
   updateSelectedCreator(uiState.selectedCreator);
+  filterSavedCreators();
+}
+
+export function filterSavedCreators() {
+  const query = document.getElementById("creator-library-search").value.trim().toLowerCase();
+  const list = document.getElementById("creators");
+  let count = 0;
+  list.querySelectorAll(".creator").forEach(row => {
+    row.hidden = !row.dataset.search.includes(query);
+    if (!row.hidden) count++;
+  });
+  const empty = document.getElementById("creator-search-empty");
+  if (empty) empty.hidden = count > 0;
+  document.getElementById("creator-search-count").textContent = `${count} of ${uiState.savedCreators.length} creators${query ? " match this search" : ""}.`;
+  list.scrollTop = 0;
 }
 
 

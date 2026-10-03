@@ -1,5 +1,12 @@
 import { uiState } from "./state.js";
 
+export function preservePageHeight() {
+  const main = document.querySelector("main");
+  // Keep the viewport's bottom reachable before hiding the current content.
+  // Recalculate on every navigation so returning to the top releases spare space.
+  main.style.minHeight = `${Math.max(0, innerHeight - main.getBoundingClientRect().top)}px`;
+}
+
 export async function performAction(button, task, { showProgress = true, disableAll = true } = {}) {
   if (uiState.actionBusy) return;
   uiState.actionBusy = true;
@@ -8,7 +15,7 @@ export async function performAction(button, task, { showProgress = true, disable
   feedback.classList.remove("error-message");
   feedback.textContent = `${button.textContent.trim()}...`;
   const restoreFocus = !disableAll && document.activeElement === button;
-  const states = (disableAll ? [...document.querySelectorAll("button:not([data-panel]):not([data-section])")] : [button])
+  const states = (disableAll ? [...document.querySelectorAll("button:not([data-panel]):not([data-section]):not(#menu-back):not(#stop-batch)")] : [button])
     .map((item) => [item, item.disabled]);
   states.forEach(([item]) => { item.disabled = true; });
   try {

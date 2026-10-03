@@ -15,7 +15,7 @@ class WebWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.items = [
             {"bvid": f"BV{day}", "title": f"Video {day}",
              "pubdate": int(datetime(2026, 9, day).timestamp()),
-             "stat": {"view": day * 10, "like": day}}
+             "stat": {"view": day * 10, "like": day, "reply": 0, "favorite": 0, "coin": 0, "share": 0}}
             for day in (3, 2, 1)
         ]
         self.uploader = Mock()
@@ -26,7 +26,7 @@ class WebWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.stack.enter_context(patch.object(videos.client, "configure_bilibili_client"))
         self.close = self.stack.enter_context(patch.object(videos.client, "close_bilibili_client", new_callable=AsyncMock))
         self.stack.enter_context(patch.object(videos.asyncio, "sleep", new_callable=AsyncMock))
-        self.stack.enter_context(patch.object(videos.video_service, "fetch_video_detail", new_callable=AsyncMock, side_effect=lambda item, credential: dict(item)))
+        self.detail = self.stack.enter_context(patch.object(videos.video_service, "fetch_video_detail", new_callable=AsyncMock, side_effect=lambda item, credential: dict(item)))
         self.stack.enter_context(patch.object(state, "PROGRESS", {"running": False, "message": "Idle.", "percent": 0, "count": None}))
 
     async def test_all_selection_modes(self):
@@ -37,7 +37,7 @@ class WebWorkflowTests(unittest.IsolatedAsyncioTestCase):
         ]
         for selection, expected in cases:
             with self.subTest(selection=selection):
-                items, _, total = await videos.fetch_selected_video_items({"action": "analysis", "selection": selection})
+                items, _, total, _ = await videos.fetch_selected_video_items({"action": "analysis", "selection": selection})
                 self.assertEqual([item["bvid"] for item in items], expected)
                 self.assertEqual(total, 3)
         self.assertEqual(self.close.await_count, 3)
@@ -47,8 +47,97 @@ class WebWorkflowTests(unittest.IsolatedAsyncioTestCase):
             await videos.fetch_selected_video_items({"selection": {"kind": "published"}})
         self.close.assert_awaited_once()
 
+    def paginate(self, count):
+        self.items = [{"bvid": f"BV{i}", "pubdate": 1000 - i,
+                       "stat": {"view": i, "like": 0, "reply": 0, "favorite": 0, "coin": 0, "share": 0}}
+                      for i in range(count)]
+        self.uploader.get_videos.side_effect = lambda pn, ps, order: {
+            "page": {"count": count}, "list": {"vlist": self.items[(pn - 1) * ps:pn * ps]}}
+
+    async def test_collects_100_valid_videos_after_102_details_across_pages(self):
+        self.paginate(150)
+        self.items[29]['stat'] = {}
+        self.items[99]['stat']['share'] = None
+        items, _, total, collection = await videos.fetch_selected_video_items({
+            'selection': {'kind': 'position', 'start': 1, 'end': 100}})
+        self.assertEqual(len(items), 100)
+        self.assertEqual(total, 150)
+        self.assertEqual(collection, {'requested': 100, 'examined': 102, 'skipped_invalid': 2,
+                                      'skipped_duplicates': 0, 'shortfall': 0})
+        self.assertEqual(self.detail.await_count, 102)
+        self.assertEqual({i['bvid'] for i in items}, {f'BV{i}' for i in range(102)} - {'BV29', 'BV99'})
+        self.assertEqual([c.kwargs['pn'] for c in self.uploader.get_videos.await_args_list], [1, 1, 2, 3, 4])
+        self.close.assert_awaited_once()
+
+    async def test_position_start_and_shortfall_are_not_silently_clamped(self):
+        self.paginate(35)
+        self.items[32]['stat'] = {}
+        items, _, _, collection = await videos.fetch_selected_video_items({
+            'selection': {'kind': 'position', 'start': 32, 'end': 41}})
+        self.assertEqual({i['bvid'] for i in items}, {'BV31', 'BV33', 'BV34'})
+        self.assertEqual(collection['requested'], 10)
+        self.assertEqual(collection['shortfall'], 7)
+        self.assertEqual(collection['examined'], 4)
+
+    async def test_invalid_metrics_are_skipped_but_zero_is_valid(self):
+        values = [None, -1, True, 1.5, float('nan'), float('inf'), 'unknown']
+        self.paginate(len(values) + 1)
+        for item, value in zip(self.items[1:], values):
+            item['stat']['share'] = value
+        items, _, _, collection = await videos.fetch_selected_video_items({
+            'selection': {'kind': 'position', 'start': 1, 'end': 2}})
+        self.assertEqual([i['bvid'] for i in items], ['BV0'])
+        self.assertEqual(collection['skipped_invalid'], len(values))
+        self.assertEqual(collection['shortfall'], 1)
+
+    async def test_empty_creator_reports_full_shortfall_without_details(self):
+        self.paginate(0)
+        items, _, total, collection = await videos.fetch_selected_video_items({
+            'selection': {'kind': 'position', 'start': 1, 'end': 100}})
+        self.assertEqual(items, [])
+        self.assertEqual(total, 0)
+        self.assertEqual(collection['shortfall'], 100)
+        self.detail.assert_not_awaited()
+
+    async def test_duplicate_summaries_do_not_count_toward_target(self):
+        self.paginate(4)
+        self.items[1] = self.items[0]
+        items, _, _, collection = await videos.fetch_selected_video_items({
+            'selection': {'kind': 'position', 'start': 1, 'end': 3}})
+        self.assertEqual(len(items), 3)
+        self.assertEqual(collection['skipped_duplicates'], 1)
+        self.assertEqual(self.detail.await_count, 3)
+
+    async def test_summary_failure_and_server_rejection_stop_collection(self):
+        self.paginate(40)
+        page = self.uploader.get_videos.side_effect
+        def fail_page(pn, ps, order):
+            if pn == 2:
+                raise RuntimeError('blocked')
+            return page(pn, ps, order)
+        self.uploader.get_videos.side_effect = fail_page
+        with self.assertRaisesRegex(ValueError, 'stopped on page 2'):
+            await videos.fetch_selected_video_items({'selection': {'kind': 'position', 'end': 35}})
+        self.uploader.get_videos.side_effect = page
+        self.detail.reset_mock()
+        self.detail.side_effect = lambda item, credential: {**item, 'stat': {}, 'detail_error_code': -412}
+        with self.assertRaisesRegex(ValueError, 'rejected'):
+            await videos.fetch_selected_video_items({'selection': {'kind': 'position', 'end': 35}})
+        self.detail.assert_awaited_once()
+        self.assertEqual(self.close.await_count, 2)
+
+    async def test_bounded_ranges_skip_invalid_without_widening_range(self):
+        self.items[1]['stat']['share'] = None
+        for selection in ({'kind': 'published', 'start_time': '2026-09-02', 'end_time': '2026-09-03'},
+                          {'kind': 'metric', 'metric': 'views', 'minimum': 10, 'maximum': 40}):
+            with self.subTest(selection=selection):
+                items, _, _, collection = await videos.fetch_selected_video_items({'selection': selection})
+                self.assertEqual([i['bvid'] for i in items], ['BV3'])
+                self.assertEqual(collection['skipped_invalid'], 1)
+                self.assertIsNone(collection['requested'])
+
     async def test_analysis_division_and_plot_results(self):
-        self.stack.enter_context(patch.object(actions, "fetch_selected_video_items", new_callable=AsyncMock, return_value=(self.items, "all", 3)))
+        self.stack.enter_context(patch.object(actions, "fetch_selected_video_items", new_callable=AsyncMock, return_value=(self.items, "all", 3, {})))
         self.stack.enter_context(patch.object(actions, "selected_creator", return_value={"uid": "42", "name": "Example"}))
         save = self.stack.enter_context(patch.object(plots, "save_web_plot_png", return_value="sample.png"))
         listing = await actions.execute_video_action({"action": "list"})

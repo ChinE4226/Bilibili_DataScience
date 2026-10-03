@@ -107,6 +107,25 @@ class WebRouteTests(unittest.TestCase):
         self.assertEqual(self.request("/api/unknown", {})[0], 404)
         self.assertEqual(self.request("/api/selected-creator", {})[0], 400)
 
+    def test_random_sample_route_returns_collection_and_handles_errors(self):
+        with patch.object(routes, 'fetch_random_sample', new_callable=AsyncMock, return_value={'sampling': {'sampled': 100}}) as sampling:
+            payload = {'keyword': 'camera', 'sample_size': 100}
+            status, _, body = self.request('/api/random-sample', payload)
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body)['sampling']['sampled'], 100)
+            sampling.assert_awaited_once_with(payload)
+            sampling.side_effect = ValueError('Invalid sample')
+            self.assertEqual(self.request('/api/random-sample', {})[0], 400)
+
+    def test_weekly_analysis_route_returns_collection_and_handles_errors(self):
+        with patch.object(routes, 'fetch_weekly_analysis', new_callable=AsyncMock, return_value={'counts': {'included': 50}}) as weekly:
+            status, _, body = self.request('/api/weekly-analysis', {'source': '393'})
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body)['counts']['included'], 50)
+            weekly.assert_awaited_once_with({'source': '393'})
+            weekly.side_effect = ValueError('Invalid issue')
+            self.assertEqual(self.request('/api/weekly-analysis', {'source': 'bad'})[0], 400)
+
     def test_plots_only_persist_after_explicit_save(self):
         points = [{"title": "Example", "label": "2026-09-01 12:00:00", "value": 12345}]
         plot_id = plots.prepare_plot({"name": "Example", "uid": "42"}, "all", "Views", "Views", points)
@@ -119,5 +138,25 @@ class WebRouteTests(unittest.TestCase):
         self.assertTrue(self.request(saved["url"])[2].startswith(b"\x89PNG\r\n\x1a\n"))
         self.assertEqual(json.loads(self.request("/api/plots/save", {"plot_id": plot_id})[2]), saved)
         self.assertEqual(len(list(config.PLOTS_DIR.glob("*.png"))), 1)
+        number_payload = {"plot_id": plot_id, "axis_mode": "number"}
+        number_save = json.loads(self.request("/api/plots/save", number_payload)[2])
+        self.assertNotEqual(number_save["name"], saved["name"])
+        self.assertEqual(json.loads(self.request("/api/plots/save", number_payload)[2]), number_save)
+        self.assertEqual(len(list(config.PLOTS_DIR.glob("*.png"))), 2)
+        self.assertEqual(self.request("/api/plots/save", {"plot_id": plot_id, "axis_mode": "invalid"})[0], 400)
+        ma_payload = {"plot_id": plot_id, "axis_mode": "number", "ma_periods": [5, 10]}
+        ma_save = json.loads(self.request("/api/plots/save", ma_payload)[2])
+        self.assertNotEqual(ma_save["name"], number_save["name"])
+        self.assertEqual(json.loads(self.request("/api/plots/save", {**ma_payload, "ma_periods": [10, 5, 5]})[2]), ma_save)
+        self.assertEqual(len(list(config.PLOTS_DIR.glob("*.png"))), 3)
+        for invalid_periods in ([0], [True], ["5"], [1000000], "5"):
+            self.assertEqual(self.request("/api/plots/save", {**ma_payload, "ma_periods": invalid_periods})[0], 400)
+        indicator_payload = {**ma_payload, "indicators": ["ema10", "median5", "relative20"]}
+        indicator_save = json.loads(self.request("/api/plots/save", indicator_payload)[2])
+        self.assertNotEqual(indicator_save["name"], ma_save["name"])
+        self.assertEqual(json.loads(self.request("/api/plots/save", {**indicator_payload, "indicators": ["relative20", "median5", "ema10", "ema10"]})[2]), indicator_save)
+        self.assertEqual(len(list(config.PLOTS_DIR.glob("*.png"))), 4)
+        for invalid in ([True], ["ema100"], "ema10", [20]):
+            self.assertEqual(self.request("/api/plots/save", {**indicator_payload, "indicators": invalid})[0], 400)
         for invalid in (None, "", "expired", "../../unexpected.png", {"points": points}):
             self.assertEqual(self.request("/api/plots/save", {"plot_id": invalid})[0], 400)

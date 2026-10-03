@@ -1,4 +1,5 @@
 import { escapeHTML, formatValue, table } from "../ui.js";
+import { uiState } from "../state.js";
 
 let current = null;
 const percent = value => value == null ? "—" : `${(value * 100).toFixed(2)}%`;
@@ -27,7 +28,7 @@ function charts(summary) {
     <figure><figcaption>Box plot · middle 50% and median</figcaption>
       <svg viewBox="0 0 680 115" role="img" aria-label="Box plot: Q1 ${summary.q1}, median ${summary.median}, Q3 ${summary.q3}">
         <line x1="${x(summary.whisker_low)}" y1="45" x2="${x(summary.whisker_high)}" y2="45" stroke="currentColor"/>
-        <rect x="${x(summary.q1)}" y="25" width="${Math.max(1, x(summary.q3) - x(summary.q1))}" height="40" fill="var(--analysis-fill, #dceae7)" stroke="currentColor"/>
+        <rect x="${x(summary.q1)}" y="25" width="${Math.max(1, x(summary.q3) - x(summary.q1))}" height="40" fill="var(--analysis-fill, #e1e7f0)" stroke="currentColor"/>
         ${[summary.whisker_low, summary.median, summary.whisker_high].map(v => `<line x1="${x(v)}" y1="20" x2="${x(v)}" y2="70" stroke="currentColor"/>`).join("")}
         <text x="40" y="98">${escapeHTML(formatValue(summary.min))}</text><text x="640" y="98" text-anchor="end">${escapeHTML(formatValue(summary.max))}</text>
       </svg>
@@ -38,19 +39,23 @@ function charts(summary) {
 
 export function renderAnalysis(data) {
   current = data;
+  document.getElementById("analysis-field").disabled = uiState.actionBusy;
   const field = document.getElementById("analysis-field").value;
   const metric = data.summaries.find(item => item.field === field) || data.summaries[0];
   const quality = data.quality;
   const outliers = data.outliers.filter(item => item.metric === metric?.label);
   document.getElementById("analysis-result").innerHTML = `
     <p>${escapeHTML(data.selection || "Fetched selection")}</p>
-    <p>${quality.rows} rows · ${quality.duplicate_rows} duplicate ID occurrences · ${quality.missing_identity} missing IDs.</p>
-    <p class="muted">Duplicates remain included. Missing, negative, and invalid counts are excluded per metric; zero is valid. Quartiles and P90 use linear interpolation.</p>
-    ${scrollTable(["Metric", "Valid", "Missing / invalid", "Mean", "Min", "Q1", "Median", "Q3", "P90", "Max", "IQR"], data.summaries.map(s => [s.label, s.count, s.missing, s.mean, s.min, s.q1, s.median, s.q3, s.p90, s.max, s.iqr]))}
+    <h3 id="analysis-metric-title">${escapeHTML(metric?.label || "Metric")} overview</h3>
+    ${metric ? scrollTable(["Valid videos", "Mean", "Median", "Min", "Max", "P90"], [[metric.count, metric.mean, metric.median, metric.min, metric.max, metric.p90]]) : ""}
     ${charts(metric)}
     <h3>Unusual ${escapeHTML(metric?.label.toLowerCase() || "metric")} values</h3>
     <p class="muted">Descriptive flags, not errors or proof of unusual quality. No observations are removed. At least four valid values are required.</p>
     ${scrollTable(["Title", "BVID", "Value", "Reason"], outliers.map(r => [r.title, r.bvid, r.value, r.reason]))}
+    <details><summary>Compare all metrics · ${quality.rows} videos</summary>
+      <p class="muted">${quality.duplicate_rows} duplicate ID occurrences · ${quality.missing_identity} missing IDs. Zero is valid. Quartiles and P90 use linear interpolation.</p>
+      ${scrollTable(["Metric", "Valid", "Missing / invalid", "Mean", "Min", "Q1", "Median", "Q3", "P90", "Max", "IQR"], data.summaries.map(s => [s.label, s.count, s.missing, s.mean, s.min, s.q1, s.median, s.q3, s.p90, s.max, s.iqr]))}
+    </details>
     <h3>Engagement per view</h3>
     <p class="muted">Pooled = total interactions / total views on eligible rows. Median = typical per-video ratio. Missing counts and zero-view videos are excluded. These are interaction ratios, not unique-user conversion rates.</p>
     ${scrollTable(["Interaction", "Eligible", "Excluded", "Pooled", "Median per video"], data.engagement.map(r => [r.field, r.count, r.excluded, percent(r.pooled), percent(r.median)]))}
@@ -65,4 +70,9 @@ export function setupAnalysis() {
   document.getElementById("analysis-field").addEventListener("change", () => {
     if (current) renderAnalysis(current);
   });
+}
+
+export function syncAnalysisControls() {
+  document.getElementById("analysis-field").disabled = !current || uiState.actionBusy;
+  document.getElementById("analysis-field").dispatchEvent(new Event("change"));
 }

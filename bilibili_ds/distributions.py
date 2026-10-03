@@ -19,6 +19,10 @@ def metric(item, key):
     return int(number) if math.isfinite(number) and number >= 0 and number.is_integer() else None
 
 
+def has_complete_metrics(item):
+    return all(metric(item, key) is not None for _, _, key in config.VIDEO_STAT_FIELDS)
+
+
 def percentile(ordered, fraction):
     """Linear interpolation at (n - 1) * fraction, including singleton samples."""
     if not ordered:

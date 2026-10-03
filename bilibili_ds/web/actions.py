@@ -49,10 +49,15 @@ async def _execute_video_action(payload: dict[str, Any]) -> dict[str, Any]:
         lower, upper = boundary(lower), boundary(upper)
         if lower is not None and upper is not None and lower > upper:
             raise ValueError("Minimum views must not exceed maximum views.")
+        source_count = len(items)
         if lower is not None or upper is not None:
             items = [item for item in items if (value := metric(item, "view")) is not None
                      and (lower is None or value >= lower) and (upper is None or value <= upper)]
             selection_label += f"; local views {lower if lower is not None else 0}–{upper if upper is not None else 'unlimited'}"
+        metadata = {**metadata, "filter_counts": {
+            "fetched": source_count, "included": len(items), "excluded": source_count - len(items),
+            "view_range": source_count - len(items),
+        }}
         serialized = [serialize_video(item) for item in items]
 
         if action == "list":

@@ -9,14 +9,14 @@ export function enableLiveReload(refresh) {
       for (const [id, value] of Object.entries(saved.fields || {})) {
         const control = document.getElementById(id);
         if (control && control.matches("input:not([type=password]):not([type=file]), select")) {
-          control.value = value;
+          if (control.type === "checkbox") control.checked = value === true;
+          else control.value = value;
           control.dispatchEvent(new Event("change"));
         }
       }
-      const button = [...document.querySelectorAll("button[data-panel]")]
-        .find((item) => item.dataset.panel === saved.panel);
+      const button = [...document.querySelectorAll("button[data-panel], button[data-section]")]
+        .find((item) => item.dataset.panel === saved.panel || item.dataset.section === saved.panel);
       if (button) button.click();
-      else if (saved.panel === "settings") document.querySelector('[data-section="settings"]')?.click();
     }
   } catch (_) { /* Reload also works when browser storage is unavailable. */ }
   let creatorsRevision = null;
@@ -31,7 +31,7 @@ export function enableLiveReload(refresh) {
         try {
           const fields = {};
           document.querySelectorAll("input[id]:not([type=password]):not([type=file]), select[id]")
-            .forEach((control) => { fields[control.id] = control.value; });
+            .forEach((control) => { fields[control.id] = control.type === "checkbox" ? control.checked : control.value; });
           const panel = document.querySelector("main")?.dataset.activePanel;
           sessionStorage.setItem(storageKey, JSON.stringify({ fields, panel }));
         } catch (_) { /* Keep reloading even if session storage is disabled. */ }
