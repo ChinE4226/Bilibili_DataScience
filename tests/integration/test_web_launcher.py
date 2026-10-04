@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import signal
 import socket
 import subprocess
@@ -25,6 +26,12 @@ class WebLauncherTests(unittest.TestCase):
                 root = Path(directory)
                 for name in ("start-web.command", "web_server.py"):
                     shutil.copy2(ROOT / name, root / name)
+                (root / 'scripts').mkdir()
+                shutil.copy2(ROOT / 'scripts/mac_launcher.sh', root / 'scripts/mac_launcher.sh')
+                (root / '.test-env/bin').mkdir(parents=True)
+                interpreter = root / '.test-env/bin/python'
+                interpreter.write_text('#!/bin/bash\nexec ' + shlex.quote(sys.executable) + ' "$@"\n')
+                interpreter.chmod(0o755)
                 for name in ("bilibili_ds", "static", "templates"):
                     shutil.copytree(ROOT / name, root / name, ignore=shutil.ignore_patterns("__pycache__"))
                 (root / "objects").mkdir()
@@ -37,6 +44,8 @@ class WebLauncherTests(unittest.TestCase):
                     PATH=str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", ""),
                     MPLCONFIGDIR=str(root / ".runtime/matplotlib"),
                     XDG_CACHE_HOME=str(root / ".runtime/cache"),
+                    BILIBILI_ENV_DIR=str(root / '.test-env'),
+                    BILIBILI_RUNTIME_DIR=str(root / '.runtime'),
                 )
                 log_path = root / "server.log"
                 with log_path.open("w") as log:

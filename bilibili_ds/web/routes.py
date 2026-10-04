@@ -6,12 +6,13 @@ import asyncio
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 import mimetypes
+import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
 from bilibili_ds import config, state as settings
-from bilibili_ds.web import state
+from bilibili_ds.web import state, dataset
 from bilibili_ds.web.accounts import (
     account_detail,
     account_records_summary,
@@ -29,6 +30,8 @@ from bilibili_ds.web.plots import plot_entries, save_prepared_plot
 from bilibili_ds.web.videos import fetch_single_video, selected_creator_detail
 from bilibili_ds.web.weekly import fetch_weekly_analysis
 from bilibili_ds.web.sampling import fetch_random_sample
+from bilibili_ds.web.nodes import node_route
+from bilibili_ds.web.live import source_versions
 
 
 class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
@@ -63,6 +66,8 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
+        if node_route(self, parsed, 'GET'):
+            return
         if path == "/":
             self.send_bytes(dashboard_html(), "text/html; charset=utf-8")
             return
@@ -74,12 +79,16 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
                 creators_revision = config.CREATORS_FILE.stat().st_mtime_ns
             except FileNotFoundError:
                 creators_revision = 0
-            self.send_json({"token": state.RELOAD_TOKEN, "creators_revision": str(creators_revision)})
+            self.send_json({"token": state.RELOAD_TOKEN, "creators_revision": str(creators_revision),
+                            **source_versions(), 'busy': bool(state.PROGRESS.get('running')),
+                            'backend_auto_reload': os.environ.get('BILIBILI_DEV_RELOAD') == '1'})
             return
         if path == "/api/health":
             self.send_json(
                 {
                     "ok": True,
+                    "chart_export_version": 2,
+                    "collection_analysis_version": 1,
                     "selected_creator": selected_creator(),
                     "account": account_summary(),
                     "request_frequency": settings.REQUEST_FREQUENCY,
@@ -88,6 +97,9 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/creators":
             self.send_json({"creators": load_web_creators(), "selected_creator": selected_creator()})
+            return
+        if path == "/api/collections":
+            self.send_json({'collections': dataset.collection_entries(), 'creator_dataset': dataset.creator_metadata()})
             return
         if path == "/api/plots":
             self.send_json({"plots": plot_entries()})
@@ -169,6 +181,8 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+        if node_route(self, parsed, 'POST'):
+            return
         if path not in {
             "/api/selected-creator",
             "/api/creators/add",
@@ -220,12 +234,12 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
                 self.send_json(asyncio.run(fetch_random_sample(data)))
                 return
             if path == "/api/plots/save":
-                self.send_json(save_prepared_plot(data.get("plot_id"), data.get("axis_mode", "time"), data.get("ma_periods"), data.get("indicators")))
+                self.send_json(save_prepared_plot(data.get("plot_id"), data.get("axis_mode", "time"), data.get("ma_periods"), data.get("indicators"),
+                                                  data.get("value_mode", "raw"), data.get("show_anomalies", False), data.get("chart_style", "line")))
                 return
             if path == "/api/request-frequency":
-                value = float(data.get("value"))
-                if value <= 0:
-                    raise ValueError("Request frequency must be greater than 0.")
+                from bilibili_ds.distributed.protocol import frequency
+                value = frequency(data.get("value"))
                 settings.REQUEST_FREQUENCY = value
                 self.send_json({"request_frequency": settings.REQUEST_FREQUENCY})
                 return

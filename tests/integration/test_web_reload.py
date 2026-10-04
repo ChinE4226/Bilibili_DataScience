@@ -10,7 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from bilibili_ds.web.reload import source_snapshot
 
@@ -27,12 +27,15 @@ class ReloadTests(unittest.TestCase):
             for name in ("web_server.py", "bilibili_ds/analysis.py", "static/app.js", "templates/page.html"):
                 (root / name).write_text("initial")
             before = source_snapshot(root)
+            backend = source_snapshot(root, backend_only=True)
+            self.assertEqual(len(backend), 2)
             self.assertEqual(len(before), 4)
             for name in (".runtime/cache.py", ".venv/lib.py", "objects/creators.json"):
                 (root / name).write_text("ignored")
             self.assertEqual(source_snapshot(root), before)
             (root / "static/app.js").write_text("changed content")
             self.assertNotEqual(source_snapshot(root), before)
+            self.assertEqual(source_snapshot(root, backend_only=True), backend)
             (root / "bilibili_ds/analysis.py").unlink()
             self.assertNotIn("bilibili_ds/analysis.py", source_snapshot(root))
 
@@ -56,8 +59,10 @@ class ReloadTests(unittest.TestCase):
                 port = probe.getsockname()[1]
             base = f"http://127.0.0.1:{port}"
 
-            def request(path):
-                with urlopen(base + path, timeout=1) as response:
+            def request(path, payload=None):
+                body = json.dumps(payload).encode() if payload is not None else None
+                req = Request(base + path, data=body, headers={'Content-Type': 'application/json'})
+                with urlopen(req, timeout=1) as response:
                     return response.read().decode()
 
             def wait_for(check):
@@ -83,12 +88,24 @@ class ReloadTests(unittest.TestCase):
                     self.assertTrue(first["token"])
                     self.assertEqual(json.loads(request("/api/health"))["request_frequency"], 8.0)
                     self.assertIn(first["token"], request("/"))
+                    request('/api/request-frequency', {'value': 2})
+                    with socket.socket() as probe:
+                        probe.bind(('127.0.0.1', 0))
+                        node_port = probe.getsockname()[1]
+                    request('/api/nodes/service', {'action': 'start', 'port': node_port})
                     template = root / "templates/dashboard.html"
                     source = template.read_text()
                     template.write_text(source.replace("Single Video Lookup", "Live Reload Verified"))
-                    wait_for(lambda: json.loads(request("/api/dev-version"))["token"] != first["token"])
+                    wait_for(lambda: json.loads(request("/api/dev-version"))["ui_revision"] != first["ui_revision"])
                     self.assertIn("Live Reload Verified", request("/"))
                     second = json.loads(request("/api/dev-version"))
+                    self.assertEqual(second['token'], first['token'], 'HTML edits must preserve the worker')
+                    stylesheet = root / 'static/css/dashboard.css'
+                    stylesheet.write_text(stylesheet.read_text() + '\n/* Live stylesheet test. */\n')
+                    wait_for(lambda: json.loads(request('/api/dev-version'))['css_revision'] != first['css_revision'])
+                    self.assertEqual(json.loads(request('/api/dev-version'))['token'], first['token'])
+                    self.assertEqual(json.loads(request('/api/health'))['request_frequency'], 2)
+                    self.assertTrue(json.loads(request('/api/nodes'))['running'], 'Interface edits keep node connections')
                     (root / "objects/creators.json").write_text('{"creators": [], "changed": true}')
                     updated = json.loads(request("/api/dev-version"))
                     self.assertEqual(updated["token"], second["token"])
@@ -96,6 +113,8 @@ class ReloadTests(unittest.TestCase):
                     config_path = root / "bilibili_ds/config.py"
                     config_path.write_text(config_path.read_text() + "\n# Reload extracted modules too.\n")
                     wait_for(lambda: json.loads(request("/api/dev-version"))["token"] != second["token"])
+                    self.assertEqual(json.loads(request('/api/health'))['request_frequency'], 8)
+                    self.assertFalse(json.loads(request('/api/nodes'))['running'], 'Python development reload resets the worker')
                     second = json.loads(request("/api/dev-version"))
                     worker_source = (root / "bilibili_ds/web/server.py").read_text()
                     (root / "bilibili_ds/web/server.py").write_text("def broken(:\n")

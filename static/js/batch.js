@@ -24,8 +24,10 @@ export function updateBatchSummary() {
   const views = filter.minimum_views || filter.maximum_views
     ? ` · views ${filter.minimum_views || "0"}–${filter.maximum_views || "unlimited"}` : " · no view limits";
   const creator = uiState.selectedCreator;
-  document.getElementById("batch-context").textContent = `Creator: ${creator?.name || creator?.uid || "choose a creator"}${views}`;
-  document.getElementById("batch-config-fetch").textContent = range;
+  document.getElementById("batch-context").textContent = uiState.collectionId
+    ? `${uiState.analysisDataset?.source_label || 'Sampling collection'}${views} · collected rows only`
+    : `Creator: ${creator?.name || creator?.uid || "choose a creator"}${views}`;
+  document.getElementById("batch-config-fetch").textContent = uiState.collectionId ? 'Already collected · switch to Creator dataset to fetch' : `${range} · ${optionLabel('fetch-source')}`;
   document.getElementById("batch-config-division").textContent = `${optionLabel("division-numerator")} / ${optionLabel("division-denominator")} · ${document.getElementById("division-mode").value === "aggregate" ? "one pooled ratio" : "per video"}`;
   document.getElementById("batch-config-plot").textContent = `${document.getElementById("plot-mode").value === "field" ? optionLabel("plot-field") : `${optionLabel("plot-numerator")} / ${optionLabel("plot-denominator")}`} · ${optionLabel("plot-axis")}`;
   document.getElementById("run-batch").disabled = !captureTasks().some(task => selected(task.id));

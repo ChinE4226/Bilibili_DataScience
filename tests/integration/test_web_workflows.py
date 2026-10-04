@@ -136,6 +136,37 @@ class WebWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(collection['skipped_invalid'], 1)
                 self.assertIsNone(collection['requested'])
 
+    async def test_page_two_rejection_preserves_code_counts_and_stops_without_retry(self):
+        from bilibili_api.exceptions import ResponseCodeException
+        self.paginate(150)
+        pages = self.uploader.get_videos.side_effect
+        failure = ResponseCodeException(-352, 'Request rejected', {'private_cookie': 'must-not-appear'})
+        def page(pn, ps, order):
+            if pn == 2:
+                raise failure
+            return pages(pn, ps, order)
+        self.uploader.get_videos.side_effect = page
+        with self.assertRaisesRegex(ValueError, 'API code -352') as error:
+            await videos.fetch_selected_video_items({'selection': {'kind': 'position', 'start': 1, 'end': 100}})
+        self.assertIn('30/100 valid videos collected before failure', str(error.exception))
+        self.assertNotIn('must-not-appear', str(error.exception))
+        self.assertIs(error.exception.__cause__, failure)
+        self.assertEqual(self.detail.await_count, 30)
+        self.assertEqual([call.kwargs['pn'] for call in self.uploader.get_videos.await_args_list], [1, 1, 2])
+        self.close.assert_awaited_once()
+
+    async def test_summary_timeout_reports_transport_cause_and_received_summary_count(self):
+        import httpx
+        self.uploader.get_videos.side_effect = [
+            {'list': {'vlist': self.items * 10}}, httpx.ReadTimeout('private request details')]
+        with self.assertRaisesRegex(ValueError, 'timed out') as error:
+            await videos.fetch_web_video_summaries(self.uploader, 60, 'order', progress_label='Listing',
+                                                   start_percent=15, end_percent=50)
+        self.assertIn('30/60 video summaries', str(error.exception))
+        self.assertNotIn('private request details', str(error.exception))
+        self.assertEqual(self.uploader.get_videos.await_count, 2)
+        self.detail.assert_not_awaited()
+
     async def test_analysis_division_and_plot_results(self):
         self.stack.enter_context(patch.object(actions, "fetch_selected_video_items", new_callable=AsyncMock, return_value=(self.items, "all", 3, {})))
         self.stack.enter_context(patch.object(actions, "selected_creator", return_value={"uid": "42", "name": "Example"}))

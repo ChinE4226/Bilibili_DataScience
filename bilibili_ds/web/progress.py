@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 from bilibili_ds.web import state
+from bilibili_ds.fetch_context import PROGRESS_CALLBACK, check_canceled
 
 
 def set_progress(message: str, *, running: bool | None = None, percent: int | None = None, count: int | None = None) -> None:
+    check_canceled()
+    callback = PROGRESS_CALLBACK.get()
+    if callback is not None:
+        callback(percent, message)
+        return
     if running is not None:
         state.PROGRESS["running"] = running
     state.PROGRESS["message"] = message

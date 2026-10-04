@@ -5,7 +5,8 @@ from contextlib import ExitStack
 import unittest
 from unittest.mock import patch
 
-from bilibili_ds import plotting
+from bilibili_ds import plotting, indicators
+import math
 from bilibili_ds.web import plots
 
 
@@ -32,6 +33,69 @@ class PlottingTests(unittest.TestCase):
         self.assertEqual(formatter(1000000, 0), "1,000,000")
         self.assertEqual(formatter(0.001, 0), "0.001")
         self.assertEqual(formatter(0, 0), "0")
+
+    def test_robust_index_handles_zeros_extremes_and_negative_values(self):
+        source = [0, 99, 99, 199, 999]
+        result = indicators.performance_index(source)
+        self.assertEqual(result["baseline"], 99)
+        self.assertEqual(result["values"][1:3], [100, 100])
+        self.assertAlmostEqual(result["values"][3], 125)
+        self.assertAlmostEqual(result["values"][-1], 100 + 25 * math.log2(10))
+        self.assertLess(result["values"][0], 0)
+        self.assertEqual(source, [0, 99, 99, 199, 999])
+        self.assertEqual(indicators.performance_index([0, 0])["values"], [100, 100])
+        self.assertEqual(indicators.performance_index([]), {"baseline": None, "values": []})
+        self.assertTrue(all(math.isfinite(value) for value in indicators.performance_index([1e308, 1e308])["values"]))
+        self.assertEqual(indicators.moving_average([-10, -20, -30], 3)[-1], -20)
+
+    def test_unusual_scores_use_only_previous_videos_and_preserve_flat_windows(self):
+        history = [100 + 10 * index for index in range(20)]
+        scores = indicators.unusual_scores(history + [10000])
+        self.assertEqual(scores[:20], [None] * 20)
+        self.assertGreater(scores[-1], 3.5)
+        logs = [math.log1p(value) for value in history]
+        from statistics import median
+        expected = .6745 * (math.log1p(10000) - median(logs)) / median([abs(value - median(logs)) for value in logs])
+        self.assertAlmostEqual(scores[-1], expected)
+        self.assertLess(indicators.unusual_scores(history + [0])[-1], -3.5)
+        self.assertEqual(indicators.unusual_scores([100] * 20 + [10000]), [None] * 21)
+        self.assertEqual(indicators.unusual_scores(history + [10000, 0])[:21], scores)
+
+    def test_index_and_log_exports_match_calculations_and_keep_negative_range(self):
+        for mode in ("index", "log"):
+            figure, axis = plotting.plt.subplots()
+            self.addCleanup(plotting.plt.close, figure)
+            raw = [0, 99, 99, 199, 999]
+            points = [{"label": f"2026-09-{i + 1:02d} 12:00:00", "value": value} for i, value in enumerate(raw)]
+            with patch.object(plotting.plt, "subplots", return_value=(figure, axis)), \
+                    patch.object(figure, "savefig"), patch.object(plots.config.PLOTS_DIR.__class__, "mkdir"):
+                plots.save_web_plot_png({"name": "Example", "uid": "42"}, "all", "Views", "Views", points,
+                                       axis_mode="number", value_mode=mode, ma_periods=[5])
+            expected = indicators.performance_index(raw)["values"] if mode == "index" else [math.log1p(v) / math.log(10) for v in raw]
+            for observed, value in zip(axis.lines[0].get_ydata(), expected):
+                self.assertAlmostEqual(observed, value)
+            if mode == "index":
+                self.assertLessEqual(axis.get_ylim()[0], min(expected))
+                self.assertEqual(axis.get_ylabel(), "Performance index")
+            else:
+                self.assertAlmostEqual(axis.lines[-1].get_ydata()[-1], math.log1p(sum(raw) / 5) / math.log(10))
+            self.assertFalse(axis.texts, "Selection context must stay outside the plotted area")
+
+    def test_display_export_options_are_validated_and_cached_separately(self):
+        for options in (("bad", False, "line"), ("index", "yes", "line"), ("raw", True, "pie")):
+            with self.assertRaises(ValueError):
+                plots.validate_display(*options)
+        with patch.object(plots, "_pending_plots", OrderedDict()), \
+                patch.object(plots, "save_web_plot_png", side_effect=["raw.png", "index.png", "flags.png", "bars.png"]) as save, \
+                patch.object(plots.config.PLOTS_DIR.__class__, "is_file", return_value=True):
+            key = plots.prepare_plot({"uid": "42"}, "all", "Views", "Views", [{"label": "x", "value": 1}])
+            raw = plots.save_prepared_plot(key)
+            index = plots.save_prepared_plot(key, value_mode="index")
+            self.assertNotEqual(raw, index)
+            self.assertEqual(plots.save_prepared_plot(key, value_mode="index"), index)
+            plots.save_prepared_plot(key, value_mode="index", show_anomalies=True)
+            plots.save_prepared_plot(key, value_mode="index", show_anomalies=True, chart_style="bar")
+            self.assertEqual(save.call_count, 4)
 
     def test_snapshot_limit_empty_data_and_copy_isolation(self):
         with ExitStack() as stack:

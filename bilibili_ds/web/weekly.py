@@ -73,6 +73,12 @@ async def fetch_weekly_analysis(payload):
                   "videos": [{**serialize_video(item),
                       "creator": (item.get("owner") or {}).get("name", "Unknown") if isinstance(item.get("owner"), dict) else "Unknown"}
                       for item in valid]}
+        configured = False
+        await client.close_bilibili_client()
+        result['dataset'] = dataset.retain_collection(valid, kind='weekly', label=f"Weekly popular · {result['issue']['name']}",
+            started_at=started, collected_at=result['collected_at'], scope=result['issue'],
+            collection={'requested': len(rows), 'examined': len(rows), 'skipped_invalid': summary['counts']['invalid'],
+                        'skipped_duplicates': summary['counts']['duplicates'], 'shortfall': len(rows) - len(valid)})
         set_progress(f"Weekly analysis completed. {len(valid)} valid videos; {summary['counts']['invalid']} invalid and {summary['counts']['duplicates']} duplicate entries skipped.",
                      running=False, percent=100, count=len(valid))
         return result

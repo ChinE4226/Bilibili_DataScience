@@ -1,3 +1,4 @@
+const openPanel = require('./workspace.cjs');
 /* Offline task sequencing, settings capture, failures, and stop behavior. */
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
@@ -23,7 +24,7 @@ const finished = once(server, 'exit');
     const page = await browser.newPage({ viewport: { width: 1360, height: 1000 } });
     async function openTool(name) {
       await page.locator('[data-section="workspace"]').click();
-      await page.locator(`[data-panel="${name}"]`).click();
+      await openPanel(page, name);
     }
     const errors = [], requests = [];
     let failure = false, saves = 0;
@@ -57,7 +58,7 @@ const finished = once(server, 'exit');
     await openTool('plot');
     await page.locator('#plot-field').selectOption('likes', { force: true });
     await page.locator('#plot-axis').selectOption('number', { force: true });
-    await page.locator('[data-panel="tasks"]').click();
+    await openPanel(page, 'tasks');
     assert.equal(await page.locator('.selection-card').isVisible(), false);
     assert.match(await page.locator('#batch-config-fetch').innerText(), /100 valid videos/);
     assert.match(await page.locator('#batch-config-division').innerText(), /Favorites \/ Views.*pooled/);
@@ -80,7 +81,7 @@ const finished = once(server, 'exit');
       document.querySelector('#division-numerator').value = 'coins';
       document.querySelector('#plot-field').value = 'shares';
     });
-    await page.locator('[data-panel="tasks"]').click();
+    await openPanel(page, 'tasks');
     releaseFetch();
     await page.locator('#batch-state-division').filter({ hasText: 'Running' }).waitFor();
     assert.equal(requests.length, 2);
@@ -111,7 +112,7 @@ const finished = once(server, 'exit');
     await openTool('plot');
     assert.equal(await page.locator('#plot-workspace').isVisible(), true);
     assert.equal(await page.locator('#plot-reset').isEnabled(), true);
-    await page.locator('[data-panel="tasks"]').click();
+    await openPanel(page, 'tasks');
     if (process.env.SCREENSHOT_PATH) await page.screenshot({ path: process.env.SCREENSHOT_PATH });
 
     // Reuse an existing dataset without an automatic fetch.

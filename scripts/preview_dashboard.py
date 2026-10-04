@@ -1,6 +1,7 @@
 """Local-only layout preview with sample data; never calls Bilibili or writes accounts."""
 
 import argparse
+import asyncio
 import io
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -18,6 +19,8 @@ from bilibili_ds.web.routes import BilibiliDataScienceHandler
 from bilibili_ds.web.serializers import VIDEO_FIELDS, extract_bvid, serialize_video
 from bilibili_ds.web.server import DashboardHTTPServer
 from bilibili_ds.web.weekly import parse_weekly_source
+from bilibili_ds.web import dataset
+from bilibili_ds.web.actions import execute_video_action
 
 
 VIDEO = {
@@ -45,10 +48,14 @@ PNG = buffer.getvalue()
 
 
 class PreviewHandler(BilibiliDataScienceHandler):
+    request_frequency = 4.0
     saved = False
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if path.startswith('/api/nodes') or path in {'/api/collections', '/api/dev-version'}:
+            super().do_GET()
+            return
         if path == "/":
             self.send_bytes(dashboard_html(), "text/html; charset=utf-8")
             return
@@ -59,7 +66,7 @@ class PreviewHandler(BilibiliDataScienceHandler):
             self.send_bytes(PNG, "image/png")
             return
         fixtures = {
-            "/api/health": {"account": "Layout preview (sample data)", "selected_creator": CREATOR, "request_frequency": 4},
+            "/api/health": {"chart_export_version": 2, "collection_analysis_version": 1, "account": "Layout preview (sample data)", "selected_creator": CREATOR, "request_frequency": self.request_frequency},
             "/api/creators": {"creators": [CREATOR, {"name": "Another uploader with a longer name", "uid": "987654"}]},
             "/api/accounts": {"accounts": [{"name": "Sample account", "uid": "555555", "id": "sample", "source": "qr", "active": True}]},
             "/api/plots": {"plots": [{"url": "/plots/sample.png", "name": "Sample_views_by_published_time.png", "size": len(PNG)}] if self.saved else []},
@@ -74,8 +81,20 @@ class PreviewHandler(BilibiliDataScienceHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path.startswith('/api/nodes'):
+            super().do_POST()
+            return
         data = read_json_body(self)
-        if path == "/api/video-lookup":
+        if path == "/api/request-frequency":
+            from bilibili_ds.distributed.protocol import frequency
+            try:
+                from bilibili_ds import state as settings
+                type(self).request_frequency = frequency(data.get('value'))
+                settings.REQUEST_FREQUENCY = self.request_frequency
+                self.send_json({'request_frequency': self.request_frequency})
+            except ValueError as exc:
+                self.send_error_json(400, str(exc))
+        elif path == "/api/video-lookup":
             try:
                 extract_bvid(data.get("video"))
             except ValueError as exc:
@@ -94,8 +113,14 @@ class PreviewHandler(BilibiliDataScienceHandler):
                 self.send_error_json(400, str(exc))
                 return
             summary["sampling"].update({"checked": len(raw), "pages": (len(raw) + 19) // 20})
+            s = summary['sampling']
+            meta = dataset.retain_collection(sampled, kind='random', label=f"Random sample · {options['keyword']}",
+                started_at='2026-10-03T00:00:00Z', collected_at='2026-10-03T00:00:01Z', scope=s,
+                collection={'requested': s['sample_size'], 'examined': s['candidates'], 'eligible': s['eligible'],
+                            'skipped_invalid': s['invalid'], 'skipped_duplicates': s['duplicates'],
+                            'collection_filtered': s['filtered_out'], 'shortfall': s['shortfall']})
             self.send_json({**summary, "started_at": "2026-10-03T00:00:00Z", "collected_at": "2026-10-03T00:00:01Z",
-                "videos": [{**serialize_video(row), "creator": row["owner"]["name"]} for row in sampled]})
+                "dataset": meta, "videos": [{**serialize_video(row), "creator": row["owner"]["name"]} for row in sampled]})
         elif path == "/api/weekly-analysis":
             try:
                 issue = parse_weekly_source(data.get("source"))
@@ -107,11 +132,23 @@ class PreviewHandler(BilibiliDataScienceHandler):
                     "stat": {field["stat_key"]: (i + 1) * 100 if field["field"] == "views" else i * 2 for field in VIDEO_FIELDS}}
                    for i in range(24)]
             _, summary = summarize_weekly_items(raw)
+            meta = dataset.retain_collection(raw, kind='weekly', label=f'Weekly popular · Weekly issue {issue}',
+                started_at='2026-10-03T00:00:00Z', collected_at='2026-10-03T00:00:01Z', scope={'number': issue},
+                collection={'requested': 24, 'examined': 24, 'skipped_invalid': 0, 'skipped_duplicates': 0, 'shortfall': 0})
             self.send_json({**summary, "issue": {"number": issue, "name": f"Weekly issue {issue}", "subject": "Sample popular videos",
                 "url": f"https://www.bilibili.com/v/popular/weekly?num={issue}"},
                 "started_at": "2026-10-03T00:00:00Z", "collected_at": "2026-10-03T00:00:01Z",
-                "videos": [{**serialize_video(row), "creator": row["owner"]["name"]} for row in raw]})
+                "dataset": meta, "videos": [{**serialize_video(row), "creator": row["owner"]["name"]} for row in raw]})
         elif path == "/api/video-action":
+            if data.get('collection_id'):
+                try:
+                    self.send_json(asyncio.run(execute_video_action(data)))
+                except ValueError as exc:
+                    self.send_error_json(400, str(exc))
+                return
+            meta = {"count": 24, "uid": CREATOR['uid'], "source_kind": 'creator', "source_label": CREATOR['name'],
+                    "selection": "Sample selection", "started_at": "2026-09-30T00:00:00Z", "collected_at": "2026-09-30T00:00:10Z", "reused": not data.get("refresh")}
+            dataset.CURRENT = {'key': dataset.context_key(data), 'meta': meta, 'data': ([], 'Sample selection', 24)}
             self.send_json({
                 "videos": VIDEOS, "points": POINTS, "y_label": "Views", "plot_id": "sample", "selected_creator": CREATOR, "selection": "All videos",
                 "mode": data.get("mode"), "numerator_total": 24001, "denominator_total": 1200034, "ratio": 0.02,
@@ -119,7 +156,7 @@ class PreviewHandler(BilibiliDataScienceHandler):
                 **analyse_dataset([{"title": item["title"], "bvid": f"sample-{i}",
                     "stat": {field["stat_key"]: (i + 1) * 100 if field["field"] == "views" else i * 2 for field in VIDEO_FIELDS}}
                     for i, item in enumerate(VIDEOS)]),
-                "dataset": {"count": 24, "selection": "Sample selection", "started_at": "2026-09-30T00:00:00Z", "collected_at": "2026-09-30T00:00:10Z", "reused": not data.get("refresh")},
+                "dataset": meta,
             })
         elif path == "/api/plots/save" and data.get("plot_id") == "sample":
             type(self).saved = True

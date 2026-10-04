@@ -6,6 +6,7 @@ from urllib.parse import unquote
 
 from bilibili_ds import config
 from bilibili_ds.web import state
+from bilibili_ds.web.live import source_versions
 
 
 STATIC_CONTENT_TYPES = {
@@ -16,7 +17,10 @@ STATIC_CONTENT_TYPES = {
 
 def dashboard_html() -> bytes:
     template = (config.TEMPLATES_DIR / "dashboard.html").read_text(encoding="utf-8")
-    return template.replace("__DEV_RELOAD_TOKEN__", escape(state.RELOAD_TOKEN, quote=True)).encode("utf-8")
+    template = template.replace("__DEV_RELOAD_TOKEN__", escape(state.RELOAD_TOKEN, quote=True))
+    for key, value in source_versions().items():
+        template = template.replace(f'__{key.upper()}__', escape(value, quote=True))
+    return template.encode("utf-8")
 
 
 def static_file(raw_name: str) -> Path | None:

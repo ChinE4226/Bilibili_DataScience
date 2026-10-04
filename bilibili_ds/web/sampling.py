@@ -66,6 +66,14 @@ async def fetch_random_sample(payload):
         result = {**report, "started_at": started, "collected_at": datetime.now(timezone.utc).isoformat(),
                   "videos": [{**serialize_video(item), "creator": (item.get("owner") or {}).get("name", "Unknown")
                               if isinstance(item.get("owner"), dict) else "Unknown"} for item in sampled]}
+        configured = False
+        await client.close_bilibili_client()
+        s = report['sampling']
+        result['dataset'] = dataset.retain_collection(sampled, kind='random', label=f"Random sample · {options['keyword']}",
+            started_at=started, collected_at=result['collected_at'], scope=s,
+            collection={'requested': s['sample_size'], 'examined': s['candidates'], 'details_checked': checked,
+                        'skipped_invalid': s['invalid'], 'skipped_duplicates': s['duplicates'],
+                        'collection_filtered': s['filtered_out'], 'eligible': s['eligible'], 'shortfall': s['shortfall']})
         set_progress(f"Sample completed: {len(sampled)}/{options['sample_size']} videos from {report['sampling']['eligible']} eligible candidates.",
                      running=False, percent=100, count=len(sampled))
         return result

@@ -1,11 +1,12 @@
 """Stable project paths and shared defaults."""
 
 from pathlib import Path
+import os
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OBJECTS_DIR = PROJECT_ROOT / "objects"
-RUNTIME_DIR = PROJECT_ROOT / ".runtime"
+RUNTIME_DIR = Path(os.environ.get('BILIBILI_RUNTIME_DIR', str(PROJECT_ROOT / '.runtime'))).expanduser()
 TEMPLATES_DIR = PROJECT_ROOT / "templates"
 STATIC_DIR = PROJECT_ROOT / "static"
 

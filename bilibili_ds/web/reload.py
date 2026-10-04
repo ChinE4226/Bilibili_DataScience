@@ -20,13 +20,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port-retries", default=10, type=int)
     parser.add_argument("--open-browser", action="store_true")
     parser.add_argument("--browser", default="chrome", choices=["chrome", "default", "none"])
-    parser.add_argument("--no-reload", action="store_true", help="Disable automatic server and browser reload.")
+    parser.add_argument("--no-reload", action="store_true", help="Disable automatic Python restarts; browser source updates remain enabled.")
     return parser.parse_args()
 
 
-def source_snapshot(root: Path) -> dict[str, tuple[int, int]]:
+def source_snapshot(root: Path, *, backend_only=False) -> dict[str, tuple[int, int]]:
     paths = [root / "web_server.py", root / "web_reload.py"]
-    for folder in ("bilibili_ds", "static", "templates"):
+    for folder in (('bilibili_ds',) if backend_only else ("bilibili_ds", "static", "templates")):
         paths.extend((root / folder).rglob("*"))
     result = {}
     for path in paths:
@@ -68,7 +68,7 @@ def run(args: argparse.Namespace, root: Path) -> None:
     port = available_port(args.host, args.port, args.port_retries)
     command = [sys.executable, "-B", "-u", str(root / "web_server.py"),
                "--no-reload", "--host", args.host, "--port", str(port), "--port-retries", "0"]
-    snapshot = source_snapshot(root)
+    snapshot = source_snapshot(root, backend_only=True)
     worker = None
     first_start = True
     print(f"Auto-reload enabled at http://{args.host}:{port}. Save a source file to update.", flush=True)
@@ -87,7 +87,7 @@ def run(args: argparse.Namespace, root: Path) -> None:
             token = uuid.uuid4().hex
             # -B prevents new bytecode, while this fresh prefix also avoids reading
             # existing caches after same-second, same-size edits to any module.
-            env = dict(os.environ, BILIBILI_RELOAD_TOKEN=token,
+            env = dict(os.environ, BILIBILI_RELOAD_TOKEN=token, BILIBILI_DEV_RELOAD='1',
                        PYTHONPYCACHEPREFIX=str(root / ".runtime" / "reload-bytecode" / token))
             launch = command.copy()
             if first_start and args.open_browser:
@@ -97,17 +97,17 @@ def run(args: argparse.Namespace, root: Path) -> None:
             reported_exit = False
             while True:
                 time.sleep(0.4)
-                current = source_snapshot(root)
+                current = source_snapshot(root, backend_only=True)
                 if current != snapshot:
                     # Wait for a quiet save interval, including atomic editor writes.
                     while True:
                         time.sleep(0.4)
-                        settled = source_snapshot(root)
+                        settled = source_snapshot(root, backend_only=True)
                         if settled == current:
                             break
                         current = settled
                     snapshot = current
-                    print("Source changed. Restarting the dashboard...", flush=True)
+                    print("Python source changed. Restarting the dashboard...", flush=True)
                     break
                 if worker.poll() is not None and not reported_exit:
                     print("Server stopped. Fix the source and save to retry.", flush=True)

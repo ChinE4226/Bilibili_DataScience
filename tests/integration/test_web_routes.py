@@ -61,7 +61,7 @@ class WebRouteTests(unittest.TestCase):
         self.assertIn(b'content="test-token"', body)
         self.assertNotIn(b"<style>", body)
         for path in config.STATIC_DIR.rglob("*"):
-            if not path.is_file():
+            if not path.is_file() or path.suffix not in assets.STATIC_CONTENT_TYPES:
                 continue
             with self.subTest(path=path):
                 url = "/static/" + path.relative_to(config.STATIC_DIR).as_posix()
@@ -76,18 +76,19 @@ class WebRouteTests(unittest.TestCase):
 
     def test_static_and_private_path_rejections(self):
         for path in ("/static/../README.md", "/static/%2e%2e/bilibili_ds/config.py", "/static/%2fetc/passwd",
-                     "/static/missing.js", "/static/", "/.runtime/bilibili_credential.json", "/bilibili_ds/config.py"):
+                     "/static/missing.js", "/static/", "/static/.DS_Store", "/.runtime/bilibili_credential.json", "/bilibili_ds/config.py"):
             with self.subTest(path=path):
                 self.assertEqual(self.request(path)[0], 404)
                 self.assertEqual(self.request(path, method="HEAD")[0], 404)
 
     def test_shared_request_rate_and_saved_creators(self):
-        status, _, body = self.request("/api/request-frequency", {"value": 8})
+        status, _, body = self.request("/api/request-frequency", {"value": 2})
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body), {"request_frequency": 8})
-        self.assertEqual(settings.REQUEST_FREQUENCY, 8)
-        self.assertEqual(json.loads(self.request("/api/health")[2])["request_frequency"], 8)
+        self.assertEqual(json.loads(body), {"request_frequency": 2})
+        self.assertEqual(settings.REQUEST_FREQUENCY, 2)
+        self.assertEqual(json.loads(self.request("/api/health")[2])["request_frequency"], 2)
         self.assertEqual(self.request("/api/request-frequency", {"value": 0})[0], 400)
+        self.assertEqual(self.request("/api/request-frequency", {"value": 8})[0], 400)
         status, _, body = self.request("/api/creators/add", {"name": "Example", "space": "https://space.bilibili.com/42"})
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body)["creator"]["uid"], "42")

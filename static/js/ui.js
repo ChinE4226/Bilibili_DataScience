@@ -3,40 +3,86 @@ import { uiState } from "./state.js";
 export function preservePageHeight() {
   const main = document.querySelector("main");
   // Keep the viewport's bottom reachable before hiding the current content.
-  // Recalculate on every navigation so returning to the top releases spare space.
+  // The floor can shrink again as the user scrolls upward.
   main.style.minHeight = `${Math.max(0, innerHeight - main.getBoundingClientRect().top)}px`;
+}
+
+export function setupPageHeight() {
+  const main = document.querySelector("main");
+  let previousScroll = scrollY;
+  window.addEventListener("scroll", () => {
+    const currentScroll = scrollY;
+    if (currentScroll < previousScroll) {
+      const required = Math.max(0, innerHeight - main.getBoundingClientRect().top);
+      if (required < parseFloat(main.style.minHeight)) main.style.minHeight = `${required}px`;
+    }
+    previousScroll = currentScroll;
+  }, { passive: true });
+}
+
+const feedbackStates = new WeakMap();
+
+export function clearFeedback(feedback) {
+  const state = feedbackStates.get(feedback);
+  if (state) clearTimeout(state.timer);
+  feedbackStates.delete(feedback);
+  feedback.hidden = true;
+}
+
+export function showFeedback(feedback, message, { error = false, duration = error ? 8000 : 4000 } = {}) {
+  clearFeedback(feedback);
+  feedback.textContent = message;
+  feedback.classList.toggle("error-message", error);
+  feedback.hidden = false;
+  const state = { duration, timer: null };
+  const schedule = () => {
+    clearTimeout(state.timer);
+    state.timer = setTimeout(() => { if (feedbackStates.get(feedback) === state) clearFeedback(feedback); }, duration);
+  };
+  if (!feedback.dataset.dismissBound) {
+    feedback.dataset.dismissBound = "true";
+    feedback.addEventListener("pointerenter", () => clearTimeout(feedbackStates.get(feedback)?.timer));
+    feedback.addEventListener("pointerleave", () => {
+      const current = feedbackStates.get(feedback);
+      if (current) current.schedule();
+    });
+  }
+  state.schedule = schedule;
+  feedbackStates.set(feedback, state);
+  schedule();
 }
 
 export async function performAction(button, task, { showProgress = true, disableAll = true } = {}) {
   if (uiState.actionBusy) return;
   uiState.actionBusy = true;
+  document.documentElement.dataset.actionBusy = 'true';
   const feedback = document.getElementById(document.getElementById("creator-menu").hidden ? "page-feedback" : "creator-menu-feedback");
+  clearFeedback(feedback);
   feedback.hidden = !showProgress;
   feedback.classList.remove("error-message");
   feedback.textContent = `${button.textContent.trim()}...`;
   const restoreFocus = !disableAll && document.activeElement === button;
-  const states = (disableAll ? [...document.querySelectorAll("button:not([data-panel]):not([data-section]):not(#menu-back):not(#stop-batch)")] : [button])
+  const states = (disableAll ? [...document.querySelectorAll("button:not([data-panel]):not([data-section]):not([data-group]):not(#menu-back):not(#stop-batch)")] : [button])
     .map((item) => [item, item.disabled]);
   states.forEach(([item]) => { item.disabled = true; });
   try {
     await task();
-    feedback.hidden = true;
+    clearFeedback(feedback);
   } catch (error) {
-    feedback.hidden = false;
-    feedback.textContent = error.message;
-    feedback.classList.add("error-message");
+    showFeedback(feedback, error.message, { error: true });
   } finally {
     states.forEach(([item, disabled]) => { item.disabled = disabled; });
     if (restoreFocus && document.activeElement === document.body && button.isConnected) {
       button.focus({ preventScroll: true });
     }
     uiState.actionBusy = false;
+    delete document.documentElement.dataset.actionBusy;
   }
 }
 
-export function bindAction(id, task, onSettled) {
+export function bindAction(id, task, onSettled, options) {
   const button = document.getElementById(id);
-  button.addEventListener("click", () => performAction(button, task).finally(() => onSettled?.()));
+  button.addEventListener("click", () => performAction(button, task, options).finally(() => onSettled?.()));
 }
 
 export function formatBytes(value) {

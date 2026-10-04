@@ -2,6 +2,7 @@ import { postJSON } from "../api.js";
 import { escapeHTML, preservePageHeight } from "../ui.js";
 import { startProgressPolling, stopProgressPolling } from "../progress.js";
 import { cohortTables } from "./weekly.js";
+import { registerCollection } from '../collections.js';
 
 const fields = { keyword: "keyword", order: "order", sample_size: "size", pool_size: "pool-size",
   published_start: "published-start", published_end: "published-end", metric: "metric",
@@ -34,6 +35,7 @@ export function setupSampling() {
 }
 
 export function renderRandomSample(data) {
+  registerCollection(data.dataset);
   const s = data.sampling;
   const scope = [`Keyword: ${s.keyword}`, `Order: ${orders[s.order]}`, `Candidate limit: ${s.pool_size}`,
     `Published: ${s.published_start || "any start"} through ${s.published_end || "any end"} (Beijing time)`,
@@ -46,8 +48,9 @@ export function renderRandomSample(data) {
     <dl class="plot-summary weekly-summary">${[["Requested videos", s.sample_size], ["Sampled videos", s.sampled], ["Eligible candidates", s.eligible], ["Creators sampled", data.counts.creators]].map(([label, value]) => `<div><dt>${label}</dt><dd>${value.toLocaleString()}</dd></div>`).join("")}</dl>
     <p>${s.candidates} candidate entries · ${s.checked} details checked · ${s.invalid} invalid · ${s.duplicates} duplicates · ${s.filtered_out} outside filters.</p>
     ${s.shortfall ? `<p role="status">${s.shortfall} fewer videos than requested: the bounded pool contained only ${s.eligible} eligible videos. Increase the candidate limit or broaden the filters for a larger sample.</p>` : ""}
+    ${data.dataset ? `<div class="actions"><button type="button" class="primary" data-use-collection="${escapeHTML(data.dataset.collection_id)}">Use in Analysis</button></div>` : ''}
     ${cohortTables(data)}
-    <p class="muted">Averages describe the sampled videos from this search pool. Each eligible candidate has the same chance of selection, without replacement. The creator dataset and its filters are kept separately. This sample stays in memory; no report files are created.</p>`;
+    <p class="muted">Averages describe the sampled videos from this search pool. Each eligible candidate has the same chance of selection, without replacement. Use in Analysis reuses this sample for charts and ratios. The creator dataset stays available. Collections stay in RAM; the newest four sampling collections are retained.</p>`;
 }
 
 export async function fetchRandomSample() {

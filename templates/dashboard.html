@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="dev-reload-token" content="__DEV_RELOAD_TOKEN__">
+  <meta name="ui-revision" content="__UI_REVISION__">
+  <meta name="css-revision" content="__CSS_REVISION__">
   <title>Bilibili Data Science</title>
   <link rel="stylesheet" href="/static/css/dashboard.css">
 </head>
@@ -20,25 +22,36 @@
   <main>
     <div class="work">
       <div id="page-feedback" class="progress" role="status" aria-live="polite" hidden></div>
+      <div id="code-update-status" class="code-update-status" role="status" hidden></div>
       <div class="workspace-heading">
         <div><p id="section-eyebrow" class="eyebrow">COLLECT · UNDERSTAND · COMPARE</p><h2 id="section-title">Workspace</h2>
         <p id="section-description" class="muted">One dataset, several ways to explore it. Fetch once, then work locally.</p></div>
       </div>
       <div class="workspace-tool-row">
-      <nav class="tool-nav" aria-label="Workspace tools" data-tools="workspace">
-        <button data-panel="videos" aria-current="page">Dataset</button>
-        <button data-panel="analysis">Statistics</button>
-        <button data-panel="division">Ratios</button>
-        <button data-panel="plot">Charts</button>
-        <button data-panel="sampling">Sampling</button>
-        <button data-panel="tasks">Tasks</button>
-        <button data-panel="saved-plots">Saved charts</button>
+      <nav class="tool-nav workspace-groups" aria-label="Workspace tools" data-tools="workspace">
+        <button data-group="data" aria-current="page">Data</button>
+        <button data-group="analysis">Analysis</button>
+        <button data-group="tasks">Tasks</button>
+        <button data-group="nodes">Nodes</button>
       </nav>
       <nav class="tool-nav" aria-label="Explore tools" data-tools="explore" hidden>
         <button data-panel="creators">Creators</button>
         <button data-panel="creator">Creator profile</button>
         <button data-panel="single-video">Single video</button>
       </nav>
+      </div>
+      <div class="workspace-subtools" data-tools="workspace">
+        <nav class="tool-nav subtool-nav" aria-label="Data tools" data-workspace-tools="data">
+          <button data-panel="videos" aria-current="page">Creator dataset</button>
+          <button data-panel="sampling">Sampling · random / weekly</button>
+        </nav>
+        <nav class="tool-nav subtool-nav" aria-label="Analysis tools" data-workspace-tools="analysis" hidden>
+          <button data-panel="analysis">Overview</button>
+          <button data-panel="plot">Charts</button>
+          <button data-panel="division">Ratios &amp; engagement</button>
+          <button data-panel="anomalies">Unusual values</button>
+          <button data-panel="saved-plots">Saved charts</button>
+        </nav>
       </div>
       <div class="menu-history">
         <button id="menu-back" type="button" disabled>← Back</button>
@@ -53,13 +66,29 @@
           </div>
         </div>
       </div>
+      <aside id="analysis-dataset-context" class="dataset-context" aria-label="Analysis dataset" hidden>
+        <div class="analysis-source-controls"><label>Analysis collection<select id="analysis-collection"><option value="">Creator dataset</option></select></label>
+        <p id="analysis-dataset-status">Fetch a creator dataset in Data to begin.</p><p id="analysis-filter-status" class="muted" hidden></p>
+        <p id="analysis-source-help" class="muted"></p>
+        <details id="analysis-provenance" hidden><summary>Collection scope</summary><p id="analysis-scope-status" class="muted"></p></details>
+        <div id="analysis-cohort-filters" class="row" hidden><label>Minimum views<input id="analysis-min-views" type="number" min="0" step="1" placeholder="No minimum"></label><label>Maximum views<input id="analysis-max-views" type="number" min="0" step="1" placeholder="No maximum"></label><span class="muted">Inclusive · run a tool to apply</span></div></div>
+        <button id="analysis-creator-filters" type="button" data-config-panel="videos">Data &amp; filters</button>
+      </aside>
       <section class="selection-card" aria-label="Working dataset">
         <div class="dataset-heading"><div><h2>Working dataset</h2>
         <p id="dataset-status" class="muted" role="status">Choose a creator and video range, then fetch your dataset.</p></div>
         <button id="fetch-dataset" type="button" class="primary">Fetch / Refresh</button></div>
         <p id="dataset-filter-status" class="muted" role="status" hidden></p>
+        <p id="dataset-count-flow" class="dataset-count-flow" role="status" hidden></p>
         <details id="dataset-source" open>
         <summary>1. Collection range <span class="muted">· Fetch from Bilibili</span></summary>
+        <div class="row dataset-pacing">
+          <label>Collection requests per second<input id="dataset-request-frequency" type="number" min="0.1" max="4" step="0.1" value="1"></label>
+          <button id="set-dataset-frequency" type="button">Apply pacing</button>
+          <p id="dataset-pacing-status" class="muted" role="status"></p>
+        </div>
+        <label>Fetch on<select id="fetch-source"><option value="auto">Automatic · use a ready node or this Mac</option><option value="parallel">Parallel · this Mac + ready nodes</option><option value="local">This Mac only</option><option value="remote">Connected node only</option></select></label>
+        <p id="fetch-node-status" class="muted" role="status">Checking fetching nodes…</p>
         <div class="grid">
           <label>Selection mode
             <select id="selection-kind">
@@ -189,6 +218,41 @@
         <p id="batch-status" role="status" aria-live="polite">Ready.</p>
         <div id="batch-progress" class="progress panel-progress" role="status" hidden></div>
       </section>
+      <section id="panel-nodes" class="panel">
+        <div class="page-heading"><div><h2>Fetching nodes</h2><p class="muted">Connect other Macs here. Fetch and analyse through the usual workspace pages.</p></div><button type="button" data-config-panel="videos">Open Dataset</button></div>
+        <p class="muted">Dataset and Tasks automatically use a ready fetching node, or this Mac when none is ready. All results enter the same working dataset.</p>
+        <h3>Connect another Mac</h3>
+        <div class="row controls"><label>Connection-service port<input id="node-service-port" type="number" min="1" max="65535" value="8010"></label>
+          <button id="start-node-service" class="primary">Start node connections</button><button id="stop-node-service" disabled>Stop connections</button></div>
+        <p id="node-service-status" class="muted" role="status">Connections are stopped.</p>
+        <div id="node-connection-info" hidden>
+          <label>Main Mac connection addresses<div id="node-service-addresses" class="node-addresses"></div></label>
+          <div class="row controls"><label>One-use pairing code<input id="node-pair-code" type="text" readonly autocomplete="off" data-transient></label>
+            <button id="new-node-pairing">New pairing code</button><button id="copy-node-pairing">Copy code</button></div>
+          <p id="node-pairing-expiry" class="muted"></p>
+        </div>
+        <p class="muted">Start the fetching-node app on another Mac, open its local web GUI, and enter this Mac's connection address and pairing code. Choose a LAN address; 127.0.0.1 works only on the same Mac. Connections use HTTP on a trusted LAN or private VPN. The dashboard remains separate from this listener.</p>
+        <p id="nodes-feedback" class="error-message" role="status" hidden></p>
+        <h3>Paired Macs</h3><p class="muted">Automatic fetching chooses a ready node. Pause prevents new tasks; current work finishes. Remove revokes the connection. Target checkboxes apply only to advanced collections below.</p>
+        <div id="nodes-list" class="analysis-table"><p class="empty-state">No nodes paired.</p></div>
+        <details id="node-advanced-collections"><summary>Advanced collections · video links and separate reports</summary>
+        <p class="muted">Use Dataset → Fetch / Refresh for your working dataset. These optional collections have separate reports and can target specific Macs.</p>
+        <h3>Create a collection task</h3>
+        <div class="row controls"><label>Collection type<select id="node-task-kind"><option value="videos">Video links / BV IDs</option><option value="creator">Creator · valid video count</option></select></label></div>
+        <div id="node-task-videos-source"><label>Video links or BV IDs · one per line<textarea id="node-task-videos" rows="5" placeholder="Paste video links or BV IDs"></textarea></label>
+          <p class="muted">Up to 1,000 unique videos. Batches of 20 can run on several Macs.</p></div>
+        <div id="node-task-creator-source" class="row controls" hidden>
+          <label>Creator UID<input id="node-task-uid" type="text" inputmode="numeric" placeholder="Creator UID"></label>
+          <label>Start publication position<input id="node-task-start" type="number" min="1" value="1"></label>
+          <label>Valid video count<input id="node-task-count" type="number" min="1" max="500" value="100"></label>
+        </div>
+        <p id="node-creator-scope" class="muted" hidden>One node scans the creator's videos until the valid count is reached, the source ends, or 2,500 candidates / 84 summary pages have been checked. Invalid data does not count toward the target; any shortfall is reported.</p>
+        <div class="actions"><button id="queue-node-task" class="primary">Queue collection</button><button id="clear-node-tasks">Clear finished tasks</button></div>
+        <h3>Collections</h3><div id="node-tasks-list" class="analysis-table"><p class="empty-state">No tasks queued.</p></div>
+        <div id="nodes-result" class="result"><p class="empty-state">Choose View results on a task to inspect its averages and videos.</p></div>
+        </details>
+        <p class="muted">Node connections, tasks, and results stay in RAM. Restarting the main app requires pairing again and clears the queue. No dataset or report files are created.</p>
+      </section>
       <section id="panel-analysis" class="panel">
         <div class="page-heading"><div><h2>Statistics &amp; engagement</h2><p class="muted">Understand the distribution, spot unusual results, and compare interaction ratios.</p></div></div>
         <div class="row controls"><label>Chart metric <select id="analysis-field" disabled aria-describedby="analysis-metric-help"></select></label>
@@ -220,6 +284,13 @@
             <select id="plot-mode">
               <option value="field">One video metric</option>
               <option value="quotient">Quotient</option>
+            </select>
+          </label>
+          <label>Value display
+            <select id="plot-scale">
+              <option value="raw">Raw values</option>
+              <option value="log">Log scale · log10(value + 1)</option>
+              <option value="index">Performance index · typical = 100</option>
             </select>
           </label>
           <label>X-axis
@@ -256,6 +327,9 @@
               <button id="download-plot" class="icon-button" title="Download current chart view" aria-label="Download current chart view" disabled><span data-plot-icon="download"></span></button>
             </div>
           </div>
+          <p id="plot-scale-help" class="muted plot-scale-help"></p>
+          <label class="anomaly-toggle"><input id="plot-anomalies" type="checkbox" checked> Mark unusual values <span class="muted">· prior 20 videos</span></label>
+          <details id="plot-advanced" class="plot-advanced"><summary>Trend indicators <span class="muted">· moving averages, medians and relative performance</span></summary>
           <div class="plot-indicators" role="group" aria-label="Moving averages" aria-describedby="plot-ma-help">
             <span class="muted">Moving averages</span>
             <button type="button" data-ma-period="5" aria-pressed="false" disabled><span class="ma-swatch ma5" aria-hidden="true"></span>MA5</button>
@@ -272,7 +346,9 @@
             <button type="button" data-indicator="relative20" aria-pressed="false" disabled>Relative20 · separate panel</button>
           </div>
           <details class="plot-indicator-help"><summary>About these indicators</summary>
-          <p id="plot-analysis-help" class="muted">EMA gives recent videos more weight, starting from the first full-window mean. Median shows the middle value in each window, reducing the influence of viral spikes. Relative20 compares each video with the mean of the previous 20, excluding itself: 1.5× means 50% above that baseline. Zero baselines have no ratio.</p></details>
+          <p id="plot-analysis-help" class="muted">EMA gives recent videos more weight, starting from the first full-window mean. Median shows the middle value in each window, reducing the influence of viral spikes. Relative20 compares each video with the mean of the previous 20, excluding itself: 1.5× means 50% above that baseline. Zero baselines have no ratio.</p><p class="muted">The performance index is 100 + 25 × log2((value + 1) / (dataset median + 1)). Its median baseline includes every valid point in the chart and remains fixed during zooming. Index trend lines average index values. Raw counts remain in tooltips and the data table; cumulative counts depend on video age.</p></details>
+          </details>
+          <p id="plot-anomaly-status" class="muted" role="status"></p>
           <p id="plot-ma-status" class="muted" role="status" hidden></p>
           <div id="plot-chart" class="chart" tabindex="0" aria-label="Chart"></div>
           <ul id="plot-legend" class="plot-legend" aria-label="Chart lines" hidden></ul>
@@ -284,6 +360,12 @@
           <div id="plot-inspection" class="plot-inspection"></div>
         </div>
         <details class="plot-data"><summary id="plot-data-label">Data</summary><div id="plot-result" class="result"></div></details>
+      </section>
+      <section id="panel-anomalies" class="panel">
+        <div class="page-heading"><div><h2>Unusual values</h2><p class="muted">Inspect unusual performance in the most recently generated chart. Original values stay in the dataset.</p></div><button type="button" data-config-panel="plot">Choose metric / generate chart</button></div>
+        <p id="anomaly-context" class="muted">Generate a chart to inspect its metric.</p>
+        <div id="anomaly-result" class="result"><p class="empty-state">No chart analysed yet.</p></div>
+        <details><summary>How unusual values are identified</summary><p class="muted">For each video, compare ln(value + 1) with the median of the previous 20 plotted videos, excluding itself. The modified z-score is 0.6745 × (log value − median) / MAD. An absolute score above 3.5 flags a potential outlier. The first 20 videos, zero-MAD windows and undated sequences have no score. Flags describe unusual performance, not manipulation. Cumulative counts are affected by video age.</p><p><a href="https://www.itl.nist.gov/div898/handbook/eda/section3/eda35h.htm" target="_blank" rel="noreferrer">Method reference · NIST</a></p></details>
       </section>
       <section id="panel-saved-plots" class="panel">
         <div class="page-heading"><h2>Saved charts</h2></div>
@@ -304,7 +386,7 @@
           <div>
             <h3>Requests</h3>
             <div class="row">
-              <label>Requests per second <input id="request-frequency" type="number" min="0.1" step="0.1" value="4"></label>
+              <label>Requests per second <input id="request-frequency" type="number" min="0.1" max="4" step="0.1" value="4"></label>
               <button id="set-frequency">Set Frequency</button>
             </div>
           </div>
@@ -329,5 +411,6 @@
     </div>
   </main>
   <script type="module" src="/static/js/app.js"></script>
+  <script type="module" src="/static/js/dev_reload.js"></script>
 </body>
 </html>

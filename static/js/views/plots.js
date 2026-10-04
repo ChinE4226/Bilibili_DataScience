@@ -1,4 +1,4 @@
-import { movingAverage, exponentialAverage, rollingMedian, relativePerformance } from "../indicators.js";
+import { movingAverage, exponentialAverage, rollingMedian, relativePerformance, performanceIndex, unusualScores } from "../indicators.js";
 export { movingAverage } from "../indicators.js";
 import * as echarts from "../../vendor/echarts-5.6.0.esm.min.js";
 import createIcon from "../../vendor/lucide/createElement.js";
@@ -7,7 +7,7 @@ import ZoomOut from "../../vendor/lucide/icons/zoom-out.js";
 import Reset from "../../vendor/lucide/icons/rotate-ccw.js";
 import Save from "../../vendor/lucide/icons/save.js";
 import Download from "../../vendor/lucide/icons/download.js";
-import { bindAction, escapeHTML } from "../ui.js";
+import { bindAction, escapeHTML, table } from "../ui.js";
 import { postJSON } from "../api.js";
 import { uiState } from "../state.js";
 
@@ -29,6 +29,64 @@ const indicatorDefinitions = {
 let extraOverlays = new Map();
 let relativeValues = [];
 let relativeChart;
+let displayedValues = [];
+let indexBaseline = null;
+let anomalyScores = [];
+
+export function resetPlot() {
+  snapshot = null;
+  plotPoints = [];
+  chart?.clear();
+  relativeChart?.clear();
+  document.getElementById('plot-workspace').hidden = true;
+  document.getElementById('plot-result').innerHTML = '<p class="empty-state">Generate a chart for this collection.</p>';
+  document.getElementById('plot-data-label').textContent = 'Data';
+  document.getElementById('anomaly-context').textContent = 'Generate a chart for this collection to inspect unusual values.';
+  document.getElementById('anomaly-result').innerHTML = '<p class="empty-state">No chart analysed yet.</p>';
+  syncPlotControls();
+}
+
+function valueMode() { return document.getElementById("plot-scale").value; }
+function displayLabel() {
+  return valueMode() === "index" ? "Performance index" : valueMode() === "log" ? "log10(value + 1)" : snapshot?.y_label || "Value";
+}
+function displayOverlay(value) { return value === null ? null : valueMode() === "log" ? Math.log1p(value) / Math.LN10 : value; }
+function showAnomalies() { return document.getElementById("plot-anomalies").checked; }
+function pointDetails(index) {
+  const pieces = [];
+  if (valueMode() !== "raw") pieces.push(`${displayLabel()}: ${formatIndicator(displayedValues[index])}`);
+  const score = anomalyScores[index];
+  if (score != null) pieces.push(`Unusual-value score: ${formatRelative(score)}${Math.abs(score) > 3.5 ? " · flagged" : ""}`);
+  return pieces.join(" | ");
+}
+function chartYAxis(values) {
+  if (valueMode() !== "index") return niceYAxis(values);
+  const axis = niceYAxis([...values, 100]);
+  const minimum = Math.min(0, ...values);
+  return { ...axis, min: minimum < 0 ? Math.floor((minimum - Math.abs(minimum) * 0.08) / axis.interval) * axis.interval : 0 };
+}
+
+function renderUnusualValues() {
+  const raw = plotPoints.map(point => point.value);
+  const indexed = performanceIndex(raw).values;
+  const assessed = anomalyScores.filter(score => score !== null).length;
+  const rows = plotPoints.flatMap((point, index) => {
+    const score = anomalyScores[index];
+    if (score == null || Math.abs(score) <= 3.5) return [];
+    return [[point.title, point.label, formatAxisNumber(point.value), formatIndicator(indexed[index]), formatRelative(score), score > 0 ? "Unusually high" : "Unusually low"]];
+  });
+  const note = `${rows.length} flagged · ${assessed} assessed · ${plotPoints.length - assessed} unavailable (first 20, zero MAD, or undated sequence). Flags are potential outliers, not proof of manipulation.`;
+  document.getElementById("plot-anomaly-status").textContent = note;
+  document.getElementById("anomaly-context").textContent = [snapshot?.y_label || "Value", snapshot?.dataset?.source_label || snapshot?.selected_creator?.name, snapshot?.selection, note].filter(Boolean).join(" · ");
+  document.getElementById("anomaly-result").innerHTML = plotPoints.length
+    ? rows.length ? table(["Video", "Published", "Raw value", "Index", "Modified z-score", "Flag"], rows)
+      : '<p class="empty-state">No unusual values flagged among the assessed videos.</p>'
+    : '<p class="empty-state">No valid chart values to analyse.</p>';
+  document.getElementById("plot-scale-help").textContent = valueMode() === "index"
+    ? `100 = dataset median (${indexBaseline === null ? "—" : formatIndicator(indexBaseline)}). Doubling is approximately +25. Baseline stays fixed when zooming; values are not clipped.${plotPoints.length < 20 ? " Small cohort: baseline may be unstable." : ""} Cumulative counts depend on video age.`
+    : valueMode() === "log" ? "Displays log10(value + 1), including zero. Tooltips keep original values. Trend lines are calculated on raw values, then transformed."
+      : "Original values. Switch to Log scale or Performance index to reduce the visual dominance of large spikes.";
+}
 
 function selectedIndicators() {
   return [...document.querySelectorAll('[data-indicator][aria-pressed="true"]')].map(button => button.dataset.indicator);
@@ -46,13 +104,18 @@ function selectedPeriods() {
 }
 
 function refreshAverages() {
-  movingAverages = new Map(selectedPeriods().map(period => [period, movingAverage(plotPoints.map(point => point.value), period)]));
-  const values = plotPoints.map(point => point.value);
+  const rawValues = plotPoints.map(point => point.value);
+  const indexed = performanceIndex(rawValues);
+  indexBaseline = indexed.baseline;
+  displayedValues = valueMode() === "index" ? indexed.values : valueMode() === "log" ? rawValues.map(displayOverlay) : rawValues;
+  anomalyScores = dated ? unusualScores(rawValues) : rawValues.map(() => null);
+  const values = valueMode() === "index" ? displayedValues : rawValues;
+  movingAverages = new Map(selectedPeriods().map(period => [period, movingAverage(values, period).map(displayOverlay)]));
   extraOverlays = new Map(selectedIndicators().filter(id => indicatorDefinitions[id]).map(id => {
     const definition = indicatorDefinitions[id];
-    return [id, definition.compute(values, definition.period)];
+    return [id, definition.compute(values, definition.period).map(displayOverlay)];
   }));
-  relativeValues = hasRelative() ? relativePerformance(values) : [];
+  relativeValues = hasRelative() ? relativePerformance(rawValues) : [];
   const missing = [...selectedPeriods().map(period => ({ label: `MA${period}`, period })),
     ...selectedIndicators().map(id => indicatorDefinitions[id] || { label: "Relative20", period: 21 })]
     .filter(item => item.period > plotPoints.length);
@@ -64,6 +127,7 @@ function refreshAverages() {
   const status = document.getElementById("plot-ma-status");
   status.hidden = !messages.length;
   status.textContent = messages.join(" ");
+  renderUnusualValues();
 }
 
 function formatIndicator(value) {
@@ -112,7 +176,9 @@ export function syncPlotControls() {
   });
   document.querySelectorAll("[data-ma-period], [data-indicator]").forEach(button => { button.disabled = !ready; });
   document.getElementById("plot-style").disabled = !ready;
-  document.getElementById("save-plot").disabled = !ready || !snapshot?.plot_id || saved;
+  const compatibleExport = uiState.chartExportVersion >= 2 || valueMode() === "raw" && !showAnomalies() && document.getElementById("plot-style").value === "line";
+  document.getElementById("save-plot").disabled = !ready || !snapshot?.plot_id || saved || !compatibleExport;
+  if (ready && snapshot?.plot_id && !compatibleExport) document.getElementById("plot-save-status").textContent = "Restart the main dashboard to enable Save PNG for this view. Download current view is available now.";
 }
 
 function markRange(range) {
@@ -124,7 +190,7 @@ function markRange(range) {
 function inspect(point) {
   if (!point) return;
   document.getElementById("plot-inspection").innerHTML =
-    `<strong title="${escapeHTML(point.title)}">${escapeHTML(point.title)}</strong><span>${escapeHTML(point.label)} | ${escapeHTML(snapshot.y_label || "Value")}: ${formatAxisNumber(point.value)}${(overlayEntries().length || hasRelative()) ? ` | ${averageDetails(plotPoints.indexOf(point))}` : ""}</span>`;
+    `<strong title="${escapeHTML(point.title)}">${escapeHTML(point.title)}</strong><span>${escapeHTML(point.label)} | ${escapeHTML(snapshot.y_label || "Value")}: ${formatAxisNumber(point.value)}${pointDetails(plotPoints.indexOf(point)) ? ` | ${pointDetails(plotPoints.indexOf(point))}` : ""}${(overlayEntries().length || hasRelative()) ? ` | ${averageDetails(plotPoints.indexOf(point))}` : ""}</span>`;
 }
 
 function timeAxis() {
@@ -143,9 +209,9 @@ function updateScale() {
   const [start, end] = rangeBounds();
   const visible = plotPoints.flatMap((point, index) => {
     const x = timeAxis() ? point.time : index;
-    return x >= start - 1 && x <= end + 1 ? [point.value, ...overlayEntries().map(entry => entry.values[index]).filter(value => value !== null)] : [];
+    return x >= start - 1 && x <= end + 1 ? [displayedValues[index], ...overlayEntries().map(entry => entry.values[index]).filter(value => value !== null)] : [];
   });
-  chart.setOption({ yAxis: niceYAxis(visible.length ? visible : plotPoints.map(point => point.value)) });
+  chart.setOption({ yAxis: chartYAxis(visible.length ? visible : displayedValues) });
 }
 
 function zoomBy(factor) {
@@ -172,18 +238,22 @@ function setRange(range) {
 
 function seriesOptions() {
   return {
-    id: "videos", name: snapshot.y_label || "Value",
+    id: "videos", name: displayLabel(),
     type: document.getElementById("plot-style").value,
-    data: plotPoints.map((point) => timeAxis() ? [point.time, point.value] : point.value),
+    data: plotPoints.map((point, index) => timeAxis() ? [point.time, displayedValues[index]] : displayedValues[index]),
+    markLine: { silent: true, symbol: "none", label: { show: false }, lineStyle: { color: "#8b94a3", type: "dashed" }, data: valueMode() === "index" ? [{ yAxis: 100 }] : [] },
+    markPoint: { symbol: "diamond", symbolSize: 12, label: { show: false }, itemStyle: { color: "#b47732", borderColor: "#fff", borderWidth: 1 },
+      tooltip: { formatter: params => escapeHTML(params.data.description) },
+      data: showAnomalies() ? plotPoints.flatMap((point, index) => anomalyScores[index] != null && Math.abs(anomalyScores[index]) > 3.5 ? [{ coord: [timeAxis() ? point.time : index, displayedValues[index]], description: `${point.title} | Raw: ${formatAxisNumber(point.value)} | Modified z-score: ${formatRelative(anomalyScores[index])}` }] : []) : [] },
     symbolSize: 6, showSymbol: plotPoints.length <= 80, lineStyle: { width: 2 },
     barMaxWidth: 28, emphasis: { focus: "series" }, clip: true
   };
 }
 
 function legendEntries() {
-  if (!plotPoints.length || !(overlayEntries().length || hasRelative())) return [];
-  return [{ label: snapshot.y_label || "Value", color: "#596b88", type: "solid" },
-    ...overlayEntries(), ...(hasRelative() ? [{ label: "Relative20 (× prior mean)", color: "#53758c", type: "solid" }] : [])];
+  if (!plotPoints.length || !(overlayEntries().length || hasRelative() || valueMode() !== "raw" || showAnomalies() && anomalyScores.some(score => score != null && Math.abs(score) > 3.5))) return [];
+  return [{ label: valueMode() === "index" ? `Performance index · 100 = median ${formatIndicator(indexBaseline)}` : valueMode() === "log" ? "log10(value + 1) · tooltips show raw values" : snapshot.y_label || "Value", color: "#596b88", type: "solid" },
+    ...overlayEntries(), ...(showAnomalies() && anomalyScores.some(score => score != null && Math.abs(score) > 3.5) ? [{ label: "Amber diamond · potential outlier (|score| > 3.5)", color: "#b47732", type: "solid" }] : []), ...(hasRelative() ? [{ label: "Relative20 (× prior mean)", color: "#53758c", type: "solid" }] : [])];
 }
 
 function renderLegend() {
@@ -323,8 +393,19 @@ export function setupPlot(onSaved) {
   document.getElementById("plot-axis").addEventListener("change", () => {
     if (snapshot) renderPlot(snapshot);
   });
+  const redrawValues = () => {
+    if (!snapshot) return;
+    const zoom = chart?.getOption().dataZoom[0];
+    renderPlot(snapshot);
+    if (zoom && chart) chart.dispatchAction({ type: "dataZoom", start: zoom.start, end: zoom.end });
+  };
+  document.getElementById("plot-scale").addEventListener("change", redrawValues);
+  document.getElementById("plot-anomalies").addEventListener("change", redrawValues);
   document.getElementById("plot-style").addEventListener("change", () => {
     chart?.setOption({ series: allSeries() });
+    saved = false;
+    document.getElementById("plot-save-status").textContent = "Not saved";
+    syncPlotControls();
   });
   document.getElementById("download-plot").addEventListener("click", async () => {
     if (!chart || !plotPoints.length) return;
@@ -335,7 +416,7 @@ export function setupPlot(onSaved) {
     link.click();
   });
   bindAction("save-plot", async () => {
-    const result = await postJSON("/api/plots/save", { plot_id: snapshot.plot_id, axis_mode: timeAxis() ? "time" : "number", ma_periods: selectedPeriods(), indicators: selectedIndicators() });
+    const result = await postJSON("/api/plots/save", { plot_id: snapshot.plot_id, axis_mode: timeAxis() ? "time" : "number", ma_periods: selectedPeriods(), indicators: selectedIndicators(), value_mode: valueMode(), show_anomalies: showAnomalies(), chart_style: document.getElementById("plot-style").value });
     saved = true;
     document.getElementById("plot-save-status").innerHTML = `Saved: <a href="${escapeHTML(result.url)}" target="_blank" rel="noreferrer">${escapeHTML(result.name)}</a>`;
     await onSaved();
@@ -365,13 +446,13 @@ export function renderPlot(data) {
   snapshot = data;
   saved = false;
   plotPoints = preparePoints(data.points);
+  dated = plotPoints.length > 0 && plotPoints.every((point) => Number.isFinite(point.time));
   refreshAverages();
   renderLegend();
-  dated = plotPoints.length > 0 && plotPoints.every((point) => Number.isFinite(point.time));
   const host = document.getElementById("plot-chart");
   document.getElementById("plot-workspace").hidden = false;
-  document.getElementById("plot-title").textContent = data.y_label || data.plot_label || "Value";
-  document.getElementById("plot-context").textContent = [data.selected_creator?.name, data.selection].filter(Boolean).join(" | ");
+  document.getElementById("plot-title").textContent = `${data.y_label || data.plot_label || "Value"}${valueMode() === "index" ? " · Performance index" : valueMode() === "log" ? " · Log scale" : ""}`;
+  document.getElementById("plot-context").textContent = [data.dataset?.source_label || data.selected_creator?.name, data.selection].filter(Boolean).join(" | ");
   document.getElementById("plot-save-status").textContent = "Not saved";
   document.getElementById("plot-inspection").textContent = "";
   document.getElementById("plot-summary").innerHTML = "";
@@ -386,12 +467,12 @@ export function renderPlot(data) {
     host.innerHTML = '<p class="empty-state">No points to plot.</p>';
     return;
   }
-  const values = plotPoints.map((point) => point.value);
+  const values = displayedValues;
   const minimum = values.reduce((a, b) => Math.min(a, b));
   const maximum = values.reduce((a, b) => Math.max(a, b));
   const summary = [[dated ? "Latest video" : "Last video", values.at(-1)], ["Lowest", minimum], ["Highest", maximum], ["Videos", values.length]];
   document.getElementById("plot-summary").innerHTML = summary.map(([label, value]) =>
-    `<div><dt>${label}</dt><dd>${formatAxisNumber(value)}</dd></div>`).join("");
+    `<div><dt>${label}</dt><dd>${valueMode() === "raw" || label === "Videos" ? formatAxisNumber(value) : formatIndicator(value)}</dd></div>`).join("");
   host.setAttribute("aria-label", `${data.y_label || "Value"} by ${timeAxis() ? "published time" : "video number"}, ${values.length} videos`);
   chart = echarts.init(host, null, { width: host.clientWidth || 800, height: host.clientHeight || 480 });
   chart.setOption({
@@ -408,7 +489,7 @@ export function renderPlot(data) {
         const point = plotPoints[params[0]?.dataIndex];
         if (!point) return "";
         inspect(point);
-        return `<strong>${escapeHTML(point.title)}</strong><br>${escapeHTML(point.label)}<br>${escapeHTML(data.y_label || "Value")}: <b>${formatAxisNumber(point.value)}</b>${(overlayEntries().length || hasRelative()) ? `<br>${averageDetails(params[0].dataIndex)}` : ""}`;
+        return `<strong>${escapeHTML(point.title)}</strong><br>${escapeHTML(point.label)}<br>${escapeHTML(data.y_label || "Value")}: <b>${formatAxisNumber(point.value)}</b>${pointDetails(params[0].dataIndex) ? `<br>${pointDetails(params[0].dataIndex)}` : ""}${(overlayEntries().length || hasRelative()) ? `<br>${averageDetails(params[0].dataIndex)}` : ""}`;
       }
     },
     xAxis: {
@@ -421,7 +502,7 @@ export function renderPlot(data) {
       splitLine: { show: true, lineStyle: { color: "#f2f3f5" } }
     },
     yAxis: {
-      ...niceYAxis(values), type: "value", name: data.y_label || "Value", nameGap: 18,
+      ...chartYAxis(values), type: "value", name: displayLabel(), nameGap: 18,
       nameTextStyle: { align: "left", width: Math.max(160, host.clientWidth - 80), overflow: "truncate" },
       axisLabel: { formatter: formatAxisNumber, color: "#626b7a" },
       splitLine: { lineStyle: { color: "#e5e8ee" } }

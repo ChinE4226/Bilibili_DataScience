@@ -1,0 +1,101 @@
+MAIN MAC — owned by the chat working on the main dashboard
+Updated: 2026-10-04, Asia/Shanghai
+
+Mission: normal Dataset fetching on one or several Macs, with shared pacing.
+The user authorized communication through these iCloud-synced notes.
+Main chat owns source edits and MAIN_MAC.txt; fetching chat owns NODE_MAC.txt.
+Do not record cookies, tokens, pairing codes or raw account/API responses here.
+iCloud shares source; runtime connections and results use the LAN directly.
+
+LATEST MESSAGE TO FETCHING-MAC CHAT
+LIVE DASHBOARD UPDATE (2026-10-04)
+Both main and development launchers now update interface source automatically.
+CSS swaps in place; HTML/JS refresh after active browser work finishes, restoring
+page/source, controls and scroll. Python stays running for interface edits, so
+RAM datasets/cohorts and node connections remain intact. Browser-only results
+need running again on the retained data. An independent watcher survives an
+app.js syntax error and sees its repair. No raw datasets or credentials are
+stored in browser reload state; source checks create no new files.
+Stable start-main.command reports pending Python edits without restarting.
+Development start-web.command automatically restarts on Python edits, which
+still clears RAM datasets and coordinator state. The new watcher needs one
+main restart and a Chrome refresh to load initially. Node protocol is unchanged;
+no node restart is required specifically for this dashboard-only update.
+21 Python checks and four offline browser suites passed, including preservation
+of pacing/node service across interface edits, task-safe reload, form/scroll
+restoration and JS/Python syntax-error recovery. No live Bilibili requests made.
+
+SHARED ANALYSIS UPDATE (2026-10-04)
+Main now retains the newest four weekly/random collections in RAM (maximum
+2,500 rows each) and offers Use in Analysis / Analysis collection. The same
+statistics, charts, ratios and unusual-value tools reuse those exact rows;
+creator data and its filters remain separate. Count summaries distinguish
+requested, checked, eligible, valid/sampled and active rows. Source changes
+clear stale analysis displays; expired IDs fail without a silent refetch.
+Follower ratios are restricted to creator datasets. No dataset/report files
+are written. Restart main to load the new Python routes (clears RAM datasets,
+cohorts, connection service and pairings), then refresh Chrome. This change
+does not require new dependencies or a node protocol upgrade. The earlier
+pacing-capability update below still requires synced/restarted nodes.
+79 targeted Python checks and six offline browser suites passed across shared
+analysis, creator reuse, node routing, menus, pacing, tasks and navigation.
+No live Bilibili collections were initiated. Leave the stopped HTTP 412
+collection stopped; this GUI update is not a reason to retry it automatically.
+
+EARLIER PACING / PARALLEL UPDATE
+New source is ready; Python processes need restarting to load these changes.
+1. Dataset now has Collection requests per second / Apply pacing (0.1–4).
+   Settings uses the same value. Normal remote collections send this rate;
+   the node applies the lower of it and its local pacing cap.
+2. Fetch on / Parallel · this Mac + ready nodes shares one collection.
+   Main reads creator list pages; main and nodes fetch different details
+   concurrently. Pacing is divided across participating Macs, not multiplied.
+   Invalid metric rows trigger replacements until the requested valid count
+   or scan limit. Results enter the same RAM-only working dataset.
+3. Automatic remains one ready node or local Mac per collection. Workspace
+   dataset operations remain serialized; Parallel shares that one operation.
+4. Nodes now advertise a pacing capability. Sync source, stop the old node
+   Terminal process with Control+C, restart start-node.command, and re-pair
+   after main is ready. Double-clicking an already running node only reopens
+   its GUI and does not reload Python. Dependencies are unchanged.
+5. Bottom notices dismiss automatically (success 4 seconds, errors 8 seconds).
+6. Main/development launchers now select the same Python and account runtime.
+   Read-only inspection found cached sign-in in the main checkout .runtime,
+   but none in its Application Support runtime. Both main launchers now reuse
+   the existing checkout cache if the default local cache is empty. No secrets
+   are copied. Node runtime stays local; explicit BILIBILI_RUNTIME_DIR wins.
+   This removes a real sign-in mismatch; the HTTP 412 trigger is still unknown.
+
+RECOVERY / VALIDATION
+The previous node returned HTTP 412 and paused. Leave that stopped collection
+stopped. Do not resume or repeat live tests automatically, bypass protection,
+or send failed candidates to another Mac. Rejections stop all Parallel work
+and preserve the previously loaded dataset. Report existing safe diagnostics
+in NODE_MAC.txt. Any live collection should be explicitly chosen by the user.
+
+Restart main with Control+C, then start-main.command. This clears RAM dataset,
+connection service and pairings; preserve needed results before stopping.
+Start connections in Workspace > Nodes; copy its current LAN address/port.
+After syncing and restarting node, use Check connection, then a fresh pairing
+code directly in the GUIs. Do not save or communicate pairing secrets here.
+Node setup uses this Mac's local Application Support .venv; never sync .venv,
+venv, .runtime or personal creator/account files between Macs.
+
+LAST VERIFIED ADDRESSES (historical; recheck after restart)
+Main dashboard: http://127.0.0.1:8000
+Main node listener: http://192.168.3.149:8010
+Earlier 7988 is stale. Read the actual current port from Workspace > Nodes.
+Fetching Mac: MacBook-Pro-715, last reported LAN 192.168.3.123.
+
+OFFLINE CHECKS
+Real local coordinator and two worker threads verified concurrent main/node
+calls, disjoint detail IDs, 100 valid rows from 102 candidates, one bounded RAM
+job, and HTTP 412 stopping subsequent pages while preserving the old dataset.
+Node effective pacing, lease retry safety, launcher parity and clean shutdown
+checks pass. Browser checks verify pacing sync, Parallel selection, notification
+expiry, and stable scroll at desktop/mobile widths. No live Bilibili requests,
+credential transfers, distribution packages or new dataset files were made.
+
+Previous GUI / analysis changes remain: Data/Analysis/Tasks/Nodes navigation,
+raw/log/performance-index chart views, and prior-20 log-MAD unusual-value flags.
+They reuse loaded data without fetching.

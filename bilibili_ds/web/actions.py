@@ -16,6 +16,7 @@ from bilibili_ds.web.serializers import (
     serialize_video,
 )
 from bilibili_ds.web.videos import fetch_followers, fetch_selected_video_items
+from bilibili_ds.web.distributed_dataset import fetch_workspace_items
 
 
 async def execute_video_action(payload: dict[str, Any]) -> dict[str, Any]:
@@ -33,7 +34,9 @@ async def _execute_video_action(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         if action not in {"list", "analysis", "division", "plot"}:
             raise ValueError("Invalid action.")
-        (items, selection_label, total), metadata = await dataset.acquire(payload, fetch_selected_video_items)
+        async def fetcher(request):
+            return await fetch_workspace_items(request, local_fetcher=fetch_selected_video_items)
+        (items, selection_label, total), metadata = await dataset.acquire(payload, fetcher)
         local = payload.get("local_filter") or {}
         lower, upper = local.get("minimum_views"), local.get("maximum_views")
         def boundary(value):
@@ -88,7 +91,10 @@ async def _execute_video_action(payload: dict[str, Any]) -> dict[str, Any]:
             denominator = field_by_name(str(payload.get("denominator") or "views"), allow_followers=True)
             if numerator is None or denominator is None:
                 raise ValueError("Invalid numerator or denominator.")
-            if "followers" in {numerator["field"], denominator["field"]}:
+            needs_followers = (action == 'division' or payload.get('plot_mode') == 'quotient') and "followers" in {numerator["field"], denominator["field"]}
+            if needs_followers and metadata.get('source_kind') in {'weekly', 'random'}:
+                raise ValueError('Follower ratios require a creator dataset. Choose video metrics for this collection.')
+            if needs_followers:
                 set_progress("Fetching selected Creator follower count.", percent=92, count=len(items))
                 followers = await fetch_followers()
             else:
@@ -177,8 +183,10 @@ async def _execute_video_action(payload: dict[str, Any]) -> dict[str, Any]:
                             "value": value,
                         }
                     )
-            selected = selected_creator()
-            plot_id = prepare_plot(selected, selection_label, plot_label, y_label, points) if selected else None
+            cohort = metadata.get('source_kind') in {'weekly', 'random'}
+            selected = None if cohort else selected_creator()
+            plot_source = {'name': metadata['source_label'], 'uid': metadata['source_kind']} if cohort else selected
+            plot_id = prepare_plot(plot_source, selection_label, plot_label, y_label, points) if plot_source else None
             set_progress(f"Plot completed. Selected {len(items)} video(s), plotted {len(points)} point(s).", running=False, percent=100, count=len(items))
             return {
                 "action": action,

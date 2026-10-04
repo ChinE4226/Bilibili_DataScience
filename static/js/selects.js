@@ -42,18 +42,23 @@ export function setupSelects() {
     document.body.append(menu);
     select.hidden = true;
     if (label) label.htmlFor = trigger.id;
-    const items = [...select.options].map((option, index) => {
-      const item = document.createElement('div');
-      item.id = `${select.id}-option-${index}`;
-      item.className = 'select-option';
-      item.setAttribute('role', 'option');
-      item.textContent = option.textContent;
-      item.setAttribute('aria-disabled', String(option.disabled));
-      menu.append(item);
-      item.addEventListener('mousedown', event => event.preventDefault());
-      item.addEventListener('click', () => choose(index));
-      return item;
-    });
+    let items = [];
+    const rebuild = () => {
+      menu.replaceChildren();
+      items = [...select.options].map((option, index) => {
+        const item = document.createElement('div');
+        item.id = `${select.id}-option-${index}`;
+        item.className = 'select-option';
+        item.setAttribute('role', 'option');
+        item.textContent = option.textContent;
+        item.setAttribute('aria-disabled', String(option.disabled));
+        menu.append(item);
+        item.addEventListener('mousedown', event => event.preventDefault());
+        item.addEventListener('click', () => choose(index));
+        return item;
+      });
+    };
+    rebuild();
     const control = { wrapper, trigger, menu, anchorTop: 0, anchorLeft: 0 };
     let active = select.selectedIndex;
     const sync = () => {
@@ -118,7 +123,9 @@ export function setupSelects() {
       }
     });
     select.addEventListener('change', sync);
-    new MutationObserver(sync).observe(select, { attributes: true, attributeFilter: ['disabled'] });
+    const optionsChanged = () => { rebuild(); active = select.selectedIndex; sync(); };
+    select.addEventListener('optionschange', optionsChanged);
+    new MutationObserver(optionsChanged).observe(select, { attributes: true, attributeFilter: ['disabled'], childList: true, subtree: true });
     controls.push(control);
     sync();
   });

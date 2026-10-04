@@ -2,6 +2,11 @@ import { escapeHTML, formatValue, table } from "../ui.js";
 import { uiState } from "../state.js";
 
 let current = null;
+export function resetAnalysis() {
+  current = null;
+  document.getElementById('analysis-result').innerHTML = '<p class="empty-state">Run Analyze Dataset for this collection.</p>';
+  syncAnalysisControls();
+}
 const percent = value => value == null ? "—" : `${(value * 100).toFixed(2)}%`;
 const scrollTable = (headers, rows) => `<div class="analysis-table">${table(headers, rows)}</div>`;
 

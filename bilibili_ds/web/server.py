@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from argparse import Namespace
 from http.server import ThreadingHTTPServer
-import subprocess
-import webbrowser
+import signal
 
+from bilibili_ds.browser import open_browser
 from bilibili_ds.web.routes import BilibiliDataScienceHandler
 
 
@@ -31,28 +31,29 @@ def create_server(host: str, start_port: int, retries: int) -> tuple[ThreadingHT
     raise OSError(f"Could not bind {host}:{start_port}-{start_port + retries}") from last_error
 
 
-def open_browser(url: str, browser_name: str) -> None:
-    if browser_name == "none":
-        return
-    if browser_name == "chrome":
-        try:
-            subprocess.run(["open", "-a", "Google Chrome", url], check=False)
-            return
-        except OSError as exc:
-            print(f"Could not open Google Chrome directly: {exc}")
-    webbrowser.open(url)
-
-
 def main(args: Namespace) -> None:
     server, port = create_server(args.host, args.port, args.port_retries)
     url = f"http://{args.host}:{port}"
-    print(f"Serving Bilibili Data Science web UI at {url}")
-    if args.open_browser:
-        open_browser(url, args.browser)
-    print("Press Ctrl+C to stop the server.")
+    previous_handlers = {}
+
+    def request_stop(signum, frame):
+        raise KeyboardInterrupt
+
+    # A stable launcher has no supervisor: Terminal close must run cleanup here.
+    for signum in (signal.SIGTERM, getattr(signal, "SIGHUP", None)):
+        if signum is not None:
+            previous_handlers[signum] = signal.signal(signum, request_stop)
     try:
+        print(f"Serving Bilibili Data Science web UI at {url}")
+        if args.open_browser:
+            open_browser(url, args.browser)
+        print("Press Ctrl+C to stop the server.")
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopping web server.")
     finally:
         server.server_close()
+        from bilibili_ds.distributed.coordinator import COORDINATOR
+        COORDINATOR.stop()
+        for signum, handler in previous_handlers.items():
+            signal.signal(signum, handler)

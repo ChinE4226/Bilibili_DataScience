@@ -1,3 +1,4 @@
+const openPanel = require('./workspace.cjs');
 /* Offline browser regression: PLAYWRIGHT_MODULE can point to an installed package. */
 const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
@@ -8,7 +9,7 @@ const path = require("node:path");
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const root = path.resolve(__dirname, "../..");
 const output = fs.mkdtempSync(path.join(os.tmpdir(), "bilibili-plots-"));
-const server = spawn(path.join(root, ".venv/bin/python"), ["-u", "scripts/preview_dashboard.py", "--port", "0"], { cwd: root });
+const server = spawn(path.join(root, ".venv/bin/python"), ["-B", "-u", "scripts/preview_dashboard.py", "--port", "0"], { cwd: root });
 let log = "";
 server.stdout.on("data", (chunk) => { log += chunk; });
 server.stderr.on("data", (chunk) => { log += chunk; });
@@ -120,7 +121,7 @@ const finished = once(server, "exit");
     assert.equal(await page.locator('button[data-uid="987654"]').isEnabled(), true);
     await page.setViewportSize({ width: 1360, height: 1000 });
     await page.click('[data-section="workspace"]');
-    await page.click('[data-panel="plot"]');
+    await openPanel(page, 'plot');
     await page.click("#run-plot");
     await page.locator("#plot-chart canvas").waitFor();
     await page.waitForFunction(() => !document.getElementById("save-plot").disabled);
@@ -154,6 +155,7 @@ const finished = once(server, "exit");
     const beforeMAFetches = fetchRequests;
     await page.click('#plot-zoom-in');
     const beforeMAZoom = (await chartState()).start;
+    await page.locator('#plot-advanced > summary').click();
     for (const period of [5, 10, 20]) await page.click(`[data-ma-period="${period}"]`);
     let maState = await chartState();
     assert.equal(maState.start, beforeMAZoom, 'MA toggles must preserve zoom');
@@ -282,10 +284,10 @@ const finished = once(server, "exit");
     assert.equal(await page.locator("#save-plot").isDisabled(), true);
     await page.click('[data-ma-period="20"]');
     assert.equal(await page.locator('#save-plot').isEnabled(), true, 'Changing overlays should enable saving the new chart');
-    await page.click('[data-panel="saved-plots"]');
+    await openPanel(page, 'saved-plots');
     await page.locator(".saved-plot img").waitFor();
     await page.click('[data-section="workspace"]');
-    await page.click('[data-panel="plot"]');
+    await openPanel(page, 'plot');
 
     const cases = [[0], [10000], [0.001, 0.002], [null, 0, 10], [], [1e8, 2e8]];
     for (const values of cases) {
@@ -329,6 +331,95 @@ const finished = once(server, "exit");
         rollingMedian([1, 2, 3, 4], 4), relativePerformance([...Array(20).fill(10), 30]).at(-1),
         relativePerformance([...Array(20).fill(0), 30]).at(-1)];
     }), [[null, null, 2, 6, 3], [null, null, null, null, 3, 4], [null, null, null, 2.5], 3, null]);
+    // Index/log toggles use the loaded cohort, retain zoom, and mark prior-window outliers.
+    const beforeTransforms = fetchRequests;
+    const raw = [...Array.from({ length: 20 }, (_, i) => 100 + i * 10), 10000];
+    await page.evaluate(async raw => {
+      const view = await import('/static/js/views/plots.js');
+      view.renderPlot({ plot_id: 'sample', y_label: 'Views', points: raw.map((value, i) => ({ value, title: `Robust ${i + 1}`, label: `2026-09-${String(i + 1).padStart(2, '0')} 12:00:00` })) });
+      view.syncPlotControls();
+    }, raw);
+    const baseline = raw.slice().sort((a, b) => a - b)[10];
+    await page.click('#plot-zoom-in');
+    const transformZoom = (await chartState()).start;
+    await page.click('#plot-scale-trigger');
+    await page.locator('#plot-scale-options').getByRole('option', { name: 'Performance index · typical = 100', exact: true }).click();
+    const transformed = await chartState();
+    assert.equal(transformed.start, transformZoom, 'Value mode retains zoom');
+    assert.equal(transformed.data.length, raw.length);
+    raw.forEach((value, i) => assert.ok(Math.abs(transformed.data[i] - (100 + 25 * Math.log2((value + 1) / (baseline + 1)))) < 1e-9));
+    assert.match(await page.locator('#plot-scale-help').innerText(), new RegExp(`median.*${baseline}`));
+    await page.click('#plot-reset');
+    await page.locator('#plot-advanced > summary').click();
+    for (const width of [1360, 768, 390, 320]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.evaluate(() => scrollTo(0, 0));
+      await page.waitForFunction(() => Math.abs(document.querySelector('#plot-chart canvas').getBoundingClientRect().width - document.querySelector('#plot-chart').clientWidth) < 2);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `Index GUI overflow at ${width}px`);
+      if ([1360, 390].includes(width)) await page.screenshot({ path: path.join(output, `index-${width}.png`), fullPage: true });
+    }
+    await page.setViewportSize({ width: 1360, height: 1000 });
+    await page.locator('#plot-advanced > summary').click();
+    // An old backend must not silently save a raw PNG for an indexed browser chart.
+    await page.evaluate(async () => {
+      const { uiState } = await import('/static/js/state.js');
+      const view = await import('/static/js/views/plots.js');
+      uiState.chartExportVersion = 0;
+      view.syncPlotControls();
+    });
+    assert.equal(await page.locator('#save-plot').isDisabled(), true);
+    assert.match(await page.locator('#plot-save-status').innerText(), /Download current view is available/);
+    await page.evaluate(async () => {
+      const { uiState } = await import('/static/js/state.js');
+      const view = await import('/static/js/views/plots.js');
+      uiState.chartExportVersion = 2;
+      view.renderPlot({ plot_id: 'sample', y_label: 'Views', points: [...Array.from({ length: 20 }, (_, i) => 100 + i * 10), 10000].map((value, i) => ({ value, title: `Robust ${i + 1}`, label: `2026-09-${String(i + 1).padStart(2, '0')} 12:00:00` })) });
+      view.syncPlotControls();
+    });
+    const flagged = await page.evaluate(async () => {
+      const lib = await import('/static/vendor/echarts-5.6.0.esm.min.js');
+      return lib.getInstanceByDom(document.getElementById('plot-chart')).getOption().series[0].markPoint.data;
+    });
+    assert.equal(flagged.length, 1);
+    assert.equal(flagged[0].coord[0], raw.length - 1, 'Category markers use ordinal positions, not video labels');
+    const markerPosition = await page.evaluate(async () => {
+      const lib = await import('/static/vendor/echarts-5.6.0.esm.min.js');
+      const chart = lib.getInstanceByDom(document.getElementById('plot-chart'));
+      const marker = chart.getOption().series[0].markPoint.data[0];
+      const [x, y] = chart.convertToPixel({ seriesIndex: 0 }, marker.coord);
+      return { x, y, width: chart.getWidth(), height: chart.getHeight() };
+    });
+    assert.ok(markerPosition.x > 0 && markerPosition.x < markerPosition.width && markerPosition.y > 0 && markerPosition.y < markerPosition.height, 'Outlier marker stays inside the chart');
+    assert.match(flagged[0].description, /Raw: 10,000/);
+    await openPanel(page, 'anomalies');
+    assert.match(await page.locator('#anomaly-result').innerText(), /Robust 21/);
+    assert.equal(await page.locator('.selection-card').isHidden(), true);
+    await openPanel(page, 'plot');
+    await page.click('#save-plot');
+    await page.waitForFunction(() => document.querySelector('#plot-save-status a'));
+    assert.equal(lastSave.value_mode, 'index');
+    assert.equal(lastSave.show_anomalies, true);
+    await page.click('#plot-scale-trigger');
+    await page.locator('#plot-scale-options').getByRole('option', { name: 'Log scale · log10(value + 1)', exact: true }).click();
+    (await chartState()).data.forEach((value, i) => assert.ok(Math.abs(value - Math.log10(raw[i] + 1)) < 1e-10));
+    assert.equal(fetchRequests, beforeTransforms, 'Transforms and unusual-value report must not fetch');
+    await page.click('#plot-scale-trigger');
+    await page.locator('#plot-scale-options').getByRole('option', { name: 'Performance index · typical = 100', exact: true }).click();
+    await page.evaluate(async () => {
+      const view = await import('/static/js/views/plots.js');
+      view.renderPlot({ y_label: 'Views', points: [0, 99, 99, 199, 999].map((value, i) => ({ value, title: String(i), label: `2026-09-0${i + 1} 12:00:00` })) });
+    });
+    assert.ok((await chartState()).min < 0, 'Index below zero must not be clipped');
+    const pure = await page.evaluate(async () => {
+      const lib = await import('/static/js/indicators.js');
+      return [lib.performanceIndex([0, 99, 99, 199, 999]), lib.unusualScores([...Array(20).fill(100), 10000]), lib.movingAverage([-10, -20, -30], 3)];
+    });
+    assert.equal(pure[0].baseline, 99);
+    assert.ok(Math.abs(pure[0].values[3] - 125) < 1e-10);
+    assert.deepEqual(pure[1], Array(21).fill(null));
+    assert.equal(pure[2].at(-1), -20);
+    await page.click('#plot-scale-trigger');
+    await page.locator('#plot-scale-options').getByRole('option', { name: 'Raw values', exact: true }).click();
     for (const id of ['ema10', 'ema20', 'median5', 'median10', 'relative20']) await page.click(`[data-indicator="${id}"]`);
     assert.equal((await chartState()).series.length, 4, 'Disabled extra overlays must be removed');
     assert.equal(await page.locator('#plot-relative-panel').isHidden(), true);

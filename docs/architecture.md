@@ -14,12 +14,16 @@ Bilibili_DataScience/
         storage.py          JSON persistence helpers
         accounts.py         Credentials and account cache operations
         client.py           Network configuration, pacing, cleanup
+        fetch_context.py    Per-collection pacing, cancellation and progress callbacks
+        browser.py          Shared Chrome opening without dashboard imports
         videos.py           Video detail requests and response handling
         selection.py        Sorting, parsing, and filters
         analysis.py         Statistics and ratios
         weekly.py           Weekly cohort averages and engagement eligibility
         sampling.py         Filter validation and random draws from eligible candidates
         plotting.py         Headless PNG rendering
+        distributed/        RAM-only coordinator, protocol, shared node fetching and worker
+        node/               Lightweight local node web GUI and command entry point
         web/                Local HTTP interface
             __main__.py     Supervisor or worker startup
             server.py       HTTP server lifecycle
@@ -31,6 +35,8 @@ Bilibili_DataScience/
             videos.py       Browser fetching and selection
             weekly.py       Weekly source validation and collection
             sampling.py     Bounded search collection and refreshed detail metrics
+            nodes.py        Local-only distributed service administration
+            distributed_dataset.py  Normal Dataset collection through a fetching node
             actions.py      Browser analysis, ratios, and plotting
             serializers.py Browser-facing fields and result formats
             plots.py       Browser plot rendering and listings
@@ -57,13 +63,19 @@ Bilibili_DataScience/
         unit/               Calculations, serialization, asset validation
         integration/        Storage, mocked APIs, entry points, HTTP, reload
     scripts/
+        mac_launcher.sh       Shared Mac environment checks, setup and launching
         preview_dashboard.py  Sample-data dashboard, no Bilibili requests
     docs/
         architecture.md     This guide
     requirements.txt        Direct Python dependencies
+    requirements-node.txt   Fetching-node dependencies without Matplotlib
     web_server.py           Compatibility web launcher
     web_reload.py           Compatibility supervisor imports
-    start-web.command       macOS web launcher
+    setup-main.command      One-time macOS main-app environment setup
+    setup-node.command      One-time macOS node environment setup
+    start-main.command      macOS main launcher with stable Python and live interface
+    start-node.command      macOS fetching-node GUI launcher
+    start-web.command       macOS development launcher with source reload
     objects/creators.json         Existing saved Creator identities
     .runtime/               Existing private caches and generated plots
 ```
@@ -75,27 +87,66 @@ Browser modules -> HTTP routes -> Web workflows -> Shared Python modules
 Shared Python modules -> Bilibili API / local storage
 ```
 
-Shared modules do not import the web interface. New code should import its owning
-module directly, not the compatibility launchers.
+New code should import its owning module directly, not the compatibility launchers.
+The node's selection adapter reuses `web/videos.py` to keep the Dataset's existing
+number, date and metric selection rules identical. That module has no chart or
+HTTP server imports; loading it on a node does not load Matplotlib.
 
 Web-specific creator selection rules and result formats live in `web/`.
 
 ## State and Files
 
-- `config.py` is the source of truth for paths, all anchored to the checkout, not
-  the current working directory.
+- `config.py` is the source of truth for paths. Source paths are anchored to the
+  checkout, not the current working directory. `BILIBILI_RUNTIME_DIR` can set a
+  Mac-local runtime directory. Main/development command launchers share interpreter
+  and runtime selection: default `~/Library/Application Support/BilibiliDataScience/runtime`,
+  or an existing checkout sign-in cache when the default has none. Node launchers
+  retain the Mac-local default; no credentials are copied.
 - `state.py` owns the shared process request rate.
 - `web/state.py` owns browser creator selection, progress, and QR login state.
 - `web/dataset.py` retains one RAM-only dataset keyed by Creator, account ID, and fetch
   selection. Explicit refresh replaces it only on success. A nonblocking lock
   rejects overlapping video operations. `reuse_only` requests never fetch silently.
   Local view filters run on a copy and do not mutate the retained collection.
+  It also holds four bounded sampling cohorts in `COHORTS`, under a separate metadata
+  lock, using opaque collection IDs. Weekly/random collectors retain trusted raw
+  valid rows after successful collection. `collection_id` actions reuse those rows
+  independently of creator selection or account, without replacing `CURRENT`.
+  Unknown IDs and refresh requests for cohorts fail explicitly; follower ratios
+  are rejected for cohorts to avoid using an unrelated selected creator's count.
+  Cohort plot snapshots name the source and support the existing explicit PNG export.
+  `/api/collections` returns provenance metadata, not credentials or uploaded rows.
+  `static/js/collections.js` manages per-browser source selection, separate cohort
+  filters and requested/checked/eligible/valid/active count summaries. Source changes
+  clear stale overview, ratio, chart and unusual-value displays. Creator refresh
+  remains available on Data, while cohort task batches contain processing steps only.
   Collection metadata tracks requested, examined, skipped and shortfall counts.
   `web/videos.py` pages forward from the requested publication position until it
   collects End − Start + 1 unique videos with six valid metrics or runs out of
   available videos. It retains only valid rows. Date/metric ranges retain their
   boundaries. Request pacing applies to replacement requests too; summary errors
   and recognized server rejection codes abort the refresh.
+- `web/distributed_dataset.py` dispatches normal Dataset selections to an idle
+  compatible fetching node and imports successful results into `dataset.CURRENT`.
+  The usual progress, dataset lock and later analysis workflows still apply.
+  Automatic is the default, including requests without `fetch_source`. It uses
+  this Mac whenever no compatible node is available, the node queue is full, or
+  a selection cannot be represented by the node protocol. Explicit local/remote
+  overrides remain available. `cancel_unstarted_selection` cancels a queued
+  selection atomically with assignment before falling back locally; a claimed
+  collection is never retried locally after failure. Separate manual collection
+  controls are collapsed under Advanced collections on the Nodes page.
+  `fetch_context.py` scopes cancellation, pacing and node progress to a collection.
+  Dataset and Settings pacing controls update the same validated 0.1–4 rate.
+  Selection units transmit this rate; workers cap it at their local setting.
+  `web/parallel.py` uses the `DETAIL_BATCHER` context to keep creator pagination
+  on main while sharing ordered detail batches between main and idle pacing-capable
+  nodes. Each participant receives its fraction of the rate. Subsequent batches
+  append to one bounded RAM job; completed leases remain valid for delivery retries.
+  Invalid rows trigger replacement batches; rejection cancels active work and leaves
+  the retained dataset unchanged. Automatic retains one-Mac routing; Parallel is explicit.
+  `distributed/network.py` discovers LAN addresses using local interfaces, and
+  node health checks verify the chosen connection port before consuming a code.
 - `distributions.py` contains pure quantile, histogram, IQR, quality, and engagement
   calculations. `static/js/views/analysis.js` renders tables and inline SVG charts
   without PNG generation or disk writes.
@@ -104,8 +155,8 @@ Web-specific creator selection rules and result formats live in `web/`.
   the referenced snapshot on demand and returns the existing file on retries.
   A lock protects the snapshot cache and serializes matplotlib exports.
 - `static/js/state.js` owns browser display state. It contains no credentials.
-- Account credentials, cookies, QR images, and plots keep their existing paths
-  under `.runtime/`. Creator identities are stored in `objects/creators.json`
+- Account credentials, cookies, QR images, and plots live under the configured
+  runtime directory (legacy `.runtime/` for direct CLI startup). Creator identities are stored in `objects/creators.json`
   under the `creators` collection key; the terminology rename preserves existing entries.
 - `/static/` serves only `.js` and `.css` files confined to the static directory.
   Traversal paths and symlinks outside that directory are rejected. Private
@@ -116,22 +167,43 @@ progress are not isolated by browser session; this is not a multi-user service.
 
 ## Entry Points and Reload
 
-Double-click `start-web.command` on macOS to start the dashboard in a foreground
-Terminal window. Press Control+C in that window to stop the server and watcher.
-The server runs independently of ChatGPT. Closing the Terminal window and
-confirming termination also stops both processes.
+Double-click `setup-main.command` once on macOS to install the main dependencies
+when no working environment exists. `setup-node.command` installs the SDK,
+HTTP client and their dependencies without Matplotlib. Both use a local Python
+environment under `~/Library/Application Support/BilibiliDataScience/.venv`
+and disable pip's download cache; neither builds a distribution archive. Main
+startup may reuse a working legacy checkout environment. Node setup creates its
+own local environment instead of modifying an iCloud-synced environment.
 
-`python -m bilibili_ds.web` and `python web_server.py` start the same dashboard.
+Double-click `start-main.command` to open the dashboard in Google Chrome, with a
+foreground Terminal window, live interface updates and Python restarts disabled. `start-node.command`
+starts the fetching node and opens its local web GUI in Chrome. Press Control+C
+in the corresponding Terminal window to stop the app. The server runs independently of ChatGPT. Closing the
+Terminal window and confirming termination also stops it.
+Repeating the node launcher opens the existing node GUI without resetting its
+connection or task. An unrelated app on the requested port causes startup to try
+the next free port, with the actual address printed in Terminal.
+
+`start-web.command`, `python -m bilibili_ds.web`, and `python web_server.py` start
+the same dashboard with development reload enabled. Press Control+C in the
+launcher window to stop both the server and watcher.
 
 The web entry point starts the supervisor before importing application modules,
 so a syntax error in application code does not kill the watcher. It watches
-`bilibili_ds/`, `templates/`, `static/`, and the root compatibility scripts.
+Python under `bilibili_ds/` and the root compatibility scripts.
 Each worker uses a fresh bytecode-cache namespace and disables cache writes.
 
-The HTML template receives the worker token in a meta tag. `dev_reload.js` polls
-the server and refreshes the browser after a worker change, retaining the active
-tab and form values. Changes to the saved Creator list refresh that list without a
-server restart. In-flight requests and transient results reset on source reload.
+`web/live.py` caches metadata-only source signatures separately for CSS, HTML/JS
+and Python. Templates embed initial interface revisions and the process token.
+The standalone `dev_reload.js` module polls revisions even if `app.js` fails to parse.
+It swaps stylesheets after successful loading and refreshes HTML/JS only while idle.
+`performAction` exposes busy state on the document so batch queues are not interrupted.
+Safe control values, active page/source and scroll survive via temporary tab storage;
+passwords, transient pairing codes and dataset rows are never stored there.
+Interface updates retain server RAM state. Browser-rendered results must be rerun
+on the retained collection. Stable main reports pending Python changes; development
+mode restarts on Python edits, clearing RAM and connections. Changes to the saved
+Creator list refresh that list without a server restart.
 Changes to the supervisor itself require restarting the launcher.
 
 ## Interactive Plots
@@ -143,12 +215,14 @@ ResizeObserver handles layout and tab changes. Exports from the download icon
 capture the current browser chart; Saved Plots contains full-range Python PNGs.
 The browser legend sits below the canvas; downloads append it as an in-memory footer.
 Saved PNGs reserve a separate figure footer for the legend.
-Both renderers use zero-based axes with 1/2/5-based tick intervals. MA5/MA10/MA20
+Raw and log-value renderers use zero-based axes with 1/2/5-based tick intervals; performance-index axes permit negative values. MA5/MA10/MA20
 use full trailing windows over valid plotted points, with nulls before the first
 complete window. Zooming scales against visible raw and MA values without
 recomputing windows. Save requests include `ma_periods`; the server validates and
 normalizes these, and caches exports by axis mode, MA windows, and additional
-`indicators`. `bilibili_ds/indicators.py` and `static/js/indicators.js` implement the
+`indicators`, value mode, anomaly markers and chart style. The health response exposes
+`chart_export_version: 2`, preventing an older running backend from silently saving
+a raw chart when the browser displays an index. `bilibili_ds/indicators.py` and `static/js/indicators.js` implement the
 same pure trailing calculations: seeded EMA, full-window median, and relative
 performance against the preceding 20 observations. Zero baselines produce gaps.
 Relative20 uses a separate ECharts instance with bidirectional zoom synchronization;
@@ -156,6 +230,15 @@ PNG downloads combine both panels in memory and Python exports share their X-axi
 The main plot keeps its height when the relative panel is enabled.
 The vendored modules require no frontend build or external CDN access. Preserve
 upstream headers and `docs/licenses/` when updating them.
+
+The same pure modules calculate a fixed-cohort median-centred log performance index
+and prior-20 log-space modified z-scores. Warmup, zero MAD and undated sequences
+produce unavailable anomaly scores. Chart mode changes retain zoom and the original
+raw points; transformed values are used only for display and appropriate overlays.
+Relative20 continues to use raw values. `app.js` mirrors dataset provenance/filter
+status in a compact Analysis summary. The Unusual values page derives its table
+from the last generated chart without I/O; a new chart replaces this report.
+Unsaved algorithms and plots remain in memory; only explicit export writes a file.
 
 ## Extending the Project
 
@@ -167,13 +250,17 @@ introducing imports from shared calculations back into the web layer.
 ## Dashboard Organization
 
 Primary navigation groups Explore (Creators library, creator profile and single video), Workspace
-(dataset rows, statistics, custom ratios, charts, sampling, tasks, saved charts), and Settings.
+(Data, Analysis, Tasks, Nodes), and Settings. Data groups creator datasets and sampling;
+Analysis groups overview, charts, ratios, unusual values and saved charts. Group and
+subview navigation both preserve state and remain available during ongoing actions.
 `app.js` maps each tool to a section and remembers its last active view in memory.
 Before switching panels or Sampling tabs, `ui.preservePageHeight()` reserves enough
 minimum height in the main element to keep the current viewport reachable. Main
 content disables scroll anchoring so replacing a panel does not shift the page.
-The minimum is recalculated on each switch; content can grow naturally, and
-navigating after scrolling to the top releases any spare space.
+The minimum is recalculated on each switch; content can grow naturally. A passive
+scroll handler reduces the reserved floor when the user scrolls upward, keeping
+the new viewport reachable. Returning to the top releases spare height immediately
+without needing another navigation, restoring the page's natural scroll limit.
 The collection/filter panel appears only on Dataset; other tools reuse its settings.
 A successful fetch updates rows and collapses collection controls without changing
 the active page. Navigation itself does not fetch data. Live reload restores
@@ -186,6 +273,9 @@ The Creators panel handles browsing and adding saved identities. Both lists use
 an explicit Back button pop that history. An open dropdown takes precedence:
 outside clicks dismiss it without navigation. Controls, charts, and results are
 excluded. Page changes retain dataset filters and fetched results.
+Global action feedback uses a fixed notice so progress and errors do not move
+page content. Clipboard actions disable only their own button, restore keyboard
+focus without scrolling, and keep address buttons intact during node polling.
 
 The Tasks page queues Fetch, Ratios, Statistics and Charts in dependency order.
 `app.js` shares task definitions and result renderers between individual actions

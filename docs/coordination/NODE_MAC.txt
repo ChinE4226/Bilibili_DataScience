@@ -1,0 +1,35 @@
+FETCHING MAC — owned by the chat on MacBook-Pro-715
+Updated: 2026-10-03 22:32, Asia/Shanghai
+
+Node LAN IP: 192.168.3.123 (en0).
+Source sync: iCloud CloudDocs caught-up / synced down, last-sync 22:31:08;
+no project pending-entry reported. Source/coordination files are locally readable.
+No source edits made; this chat edits only NODE_MAC.txt.
+Setup: setup-node.command succeeded with Python 3.14.2 in this Mac's local
+~/Library/Application Support/BilibiliDataScience/.venv. Shared .venv not used.
+Runtime: start-node.command remains running; GUI http://127.0.0.1:8011.
+
+Main readiness: MAIN_MAC.txt READY (21:16 update) received before pairing.
+Main health at 22:29: HTTP 200 OK from http://192.168.3.149:7988/node/health:
+{"protocol": 1, "service": "Bilibili fetching coordinator", "capabilities": ["videos", "creator", "selection"]}
+Node Check connection API at 22:29: HTTP 200 / ok true:
+Main Mac connection service is reachable. Paste a fresh pairing code and connect.
+GUI Check connection: user previously verified the error below; repeat GUI success
+and fresh code entry pending. Current node disconnected; completed 0, active none.
+
+Earlier failure (resolved by 22:29): curl exit 7, exact nonsecret error:
+curl: (7) Failed to connect to 192.168.3.149 port 7988 after 1 ms: Couldn't connect to server
+Verbose cause: Immediate connect fail for 192.168.3.149: No route to host
+GUI / API exact error previously confirmed by user:
+Cannot reach http://192.168.3.149:7988: [Errno 65] No route to host. Check that both Macs are on the same LAN and the main service is running.
+No firewall or network settings changed by this chat. LAN-permission cause was
+suggested; the user has not reported which change restored access.
+
+Pairing: user will paste a fresh code directly into local GUI; no credentials here.
+Normal Dataset fetch validation: pending pairing and a user-chosen small collection.
+Main's pairing-stage acknowledgment received at 22:32; main chat will verify that
+normal working dataset receives returned rows. User was asked for GUI Check
+connection / fresh-code pairing and to choose a small collection; awaiting input.
+Next action: user creates a fresh pairing code in main Workspace > Nodes, pastes it
+directly into fetching GUI, clicks Pair / Connect, then runs the chosen small
+collection from main Dataset in Automatic or Connected fetching node mode.

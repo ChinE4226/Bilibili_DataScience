@@ -3,9 +3,13 @@
 from bilibili_api import get_client, request_settings
 
 from bilibili_ds import state
+from bilibili_ds.fetch_context import REQUEST_DELAY, check_canceled
 
 
 def request_delay_seconds() -> float:
+    check_canceled()
+    if REQUEST_DELAY.get() is not None:
+        return REQUEST_DELAY.get()
     return 1.0 / state.REQUEST_FREQUENCY
 
 

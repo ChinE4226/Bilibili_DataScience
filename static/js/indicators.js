@@ -9,7 +9,7 @@ export function movingAverage(values, period) {
   return values.map((value, index) => {
     sum += value;
     if (index >= period) sum -= values[index - period];
-    return index + 1 < period ? null : Math.max(0, sum / period);
+    return index + 1 < period ? null : sum / period;
   });
 }
 
@@ -41,5 +41,32 @@ export function relativePerformance(values, period = 20) {
     if (index < period || !(baseline[index - 1] > 0)) return null;
     const ratio = value / baseline[index - 1];
     return Number.isFinite(ratio) ? ratio : null;
+  });
+}
+
+function medianOf(values) {
+  const ordered = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(ordered.length / 2);
+  return ordered.length % 2 ? ordered[middle] : ordered[middle - 1] / 2 + ordered[middle] / 2;
+}
+
+export function performanceIndex(values) {
+  if (!values.length) return { baseline: null, values: [] };
+  const baseline = medianOf(values);
+  const center = Math.log1p(baseline);
+  return { baseline, values: values.map(value => 100 + 25 * (Math.log1p(value) - center) / Math.LN2) };
+}
+
+export function unusualScores(values, period = 20) {
+  validatePeriod(period);
+  const logs = values.map(value => Math.log1p(value));
+  return logs.map((value, index) => {
+    if (index < period) return null;
+    const history = logs.slice(index - period, index);
+    const center = medianOf(history);
+    const mad = medianOf(history.map(previous => Math.abs(previous - center)));
+    if (!(mad > 0)) return null;
+    const score = 0.6745 * (value - center) / mad;
+    return Number.isFinite(score) ? score : null;
   });
 }

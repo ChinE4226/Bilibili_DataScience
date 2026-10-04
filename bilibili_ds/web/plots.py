@@ -13,7 +13,7 @@ from typing import Any
 from uuid import uuid4
 
 from bilibili_ds import config, plotting
-from bilibili_ds.indicators import moving_average, exponential_average, rolling_median, relative_performance
+from bilibili_ds.indicators import moving_average, exponential_average, rolling_median, relative_performance, performance_index, unusual_scores
 from bilibili_ds.plotting import mdates
 
 
@@ -64,12 +64,23 @@ def normalize_indicators(indicators: Any) -> tuple[str, ...]:
     return tuple(sorted(set(indicators)))
 
 
-def save_prepared_plot(plot_id: Any, axis_mode: str = "time", ma_periods: Any = None, indicators: Any = None) -> dict[str, str]:
+def validate_display(value_mode, show_anomalies, chart_style):
+    if value_mode not in ("raw", "log", "index"):
+        raise ValueError("Choose raw values, log scale, or performance index.")
+    if type(show_anomalies) is not bool:
+        raise ValueError("Unusual-value markers must be on or off.")
+    if chart_style not in ("line", "bar"):
+        raise ValueError("Choose a line or bar chart.")
+
+
+def save_prepared_plot(plot_id: Any, axis_mode: str = "time", ma_periods: Any = None, indicators: Any = None,
+                       value_mode: str = "raw", show_anomalies: bool = False, chart_style: str = "line") -> dict[str, str]:
     if axis_mode not in ("time", "number"):
         raise ValueError("Choose a published-time or video-number axis.")
     periods = normalize_ma_periods(ma_periods)
     chosen = normalize_indicators(indicators)
-    cache_key = (axis_mode, periods, chosen)
+    validate_display(value_mode, show_anomalies, chart_style)
+    cache_key = (axis_mode, periods, chosen, value_mode, show_anomalies, chart_style)
     with _plot_lock:
         snapshot = _pending_plots.get(plot_id) if isinstance(plot_id, str) else None
         if snapshot is None:
@@ -77,7 +88,8 @@ def save_prepared_plot(plot_id: Any, axis_mode: str = "time", ma_periods: Any = 
         files = snapshot.setdefault("files", {})
         name = files.get(cache_key)
         if not name or not (config.PLOTS_DIR / name).is_file():
-            name = save_web_plot_png(**{key: value for key, value in snapshot.items() if key != "files"}, axis_mode=axis_mode, ma_periods=periods, indicators=chosen)
+            name = save_web_plot_png(**{key: value for key, value in snapshot.items() if key != "files"}, axis_mode=axis_mode, ma_periods=periods, indicators=chosen,
+                                     value_mode=value_mode, show_anomalies=show_anomalies, chart_style=chart_style)
             files[cache_key] = name
         return {"name": name, "url": f"/plots/{name}"}
 
@@ -117,10 +129,14 @@ def save_web_plot_png(
     axis_mode: str = "time",
     ma_periods: Any = None,
     indicators: Any = None,
+    value_mode: str = "raw",
+    show_anomalies: bool = False,
+    chart_style: str = "line",
 ) -> str | None:
     if not points:
         return None
 
+    validate_display(value_mode, show_anomalies, chart_style)
     periods = normalize_ma_periods(ma_periods)
     chosen = normalize_indicators(indicators)
     points = [point for point in points if type(point["value"]) in (int, float) and math.isfinite(point["value"]) and point["value"] >= 0]
@@ -138,26 +154,43 @@ def save_web_plot_png(
     ]
     use_time = axis_mode == "time" and len(parsed_dates) == len(points)
     x_values = parsed_dates if use_time else list(range(1, len(points) + 1))
-    y_values = [float(point["value"]) for point in points]
+    raw_values = [float(point["value"]) for point in points]
+    indexed = performance_index(raw_values)
+    transformed = lambda value: None if value is None else math.log1p(value) / math.log(10) if value_mode == "log" else value
+    trend_values = indexed["values"] if value_mode == "index" else raw_values
+    y_values = [transformed(value) for value in trend_values]
+    display_label = "Performance index" if value_mode == "index" else "log10(value + 1)" if value_mode == "log" else y_label
+    dated = len(parsed_dates) == len(points)
+    scores = unusual_scores(raw_values) if dated else [None] * len(points)
 
     relative_axis = None
     if "relative20" in chosen:
         figure, (axis, relative_axis) = plotting.plt.subplots(2, 1, figsize=(13, 10), sharex=True, gridspec_kw={"height_ratios": [3, 1]})
     else:
         figure, axis = plotting.plt.subplots(figsize=(13, 7))
-    axis.plot(x_values, y_values, marker="o", linewidth=2.0, markersize=4.5, color="#596b88", label=y_label)
+    if chart_style == "bar":
+        axis.bar(x_values, y_values, color="#596b88", label=display_label)
+    else:
+        axis.plot(x_values, y_values, marker="o", linewidth=2.0, markersize=4.5, color="#596b88", label=display_label)
+    if value_mode == "index":
+        axis.axhline(100, color="#8b94a3", linestyle="--", linewidth=1)
+    if show_anomalies:
+        flagged = [index for index, score in enumerate(scores) if score is not None and abs(score) > 3.5]
+        if flagged:
+            axis.scatter([x_values[index] for index in flagged], [y_values[index] for index in flagged],
+                         marker="D", color="#b47732", edgecolors="white", zorder=5, label="Potential outlier (|score| > 3.5)")
     ma_styles = {5: ("#b47732", "-"), 10: ("#8363a5", "--"), 20: ("#b55d70", ":")}
     for period in periods:
         if len(y_values) >= period:
             color, style = ma_styles[period]
-            axis.plot(x_values, moving_average(y_values, period), color=color, linestyle=style, linewidth=2, label=f"MA{period}")
+            axis.plot(x_values, [transformed(value) for value in moving_average(trend_values, period)], color=color, linestyle=style, linewidth=2, label=f"MA{period}")
     for indicator in chosen:
         if indicator in INDICATORS:
             label, period, compute, color, style = INDICATORS[indicator]
             if len(y_values) >= period:
-                axis.plot(x_values, compute(y_values, period), color=color, linestyle=style, linewidth=2, label=label)
+                axis.plot(x_values, [transformed(value) for value in compute(trend_values, period)], color=color, linestyle=style, linewidth=2, label=label)
     if relative_axis is not None:
-        ratios = relative_performance(y_values)
+        ratios = relative_performance(raw_values)
         relative_axis.plot(x_values, ratios, color="#53758c", linewidth=2, label="Relative20")
         relative_axis.axhline(1, color="#8b94a3", linestyle="--", linewidth=1)
         relative_axis.set_ylabel("Relative20 (×)")
@@ -165,7 +198,8 @@ def save_web_plot_png(
         relative_axis.grid(True, linewidth=0.5, alpha=0.5)
         if not any(value is not None for value in ratios):
             relative_axis.text(0.5, 0.5, "Needs 20 previous videos with a positive mean", ha="center", transform=relative_axis.transAxes)
-    if periods or chosen:
+    has_legend = bool(periods or chosen or value_mode != "raw" or show_anomalies and any(score is not None and abs(score) > 3.5 for score in scores))
+    if has_legend:
         handles, labels = axis.get_legend_handles_labels()
         if relative_axis is not None:
             handles += [relative_axis.lines[0]]
@@ -173,8 +207,15 @@ def save_web_plot_png(
         figure.legend(handles, labels, loc="lower center", ncol=3, frameon=False)
     axis.set_title(f"{selected['name']} (UID {selected['uid']}) - {plot_label}")
     (relative_axis if relative_axis is not None else axis).set_xlabel("Published time" if use_time else "Video number (oldest → newest)" if parsed_dates else "Video number")
-    axis.set_ylabel(y_label)
-    plotting.configure_y_axis(axis, y_values)
+    axis.set_ylabel(display_label)
+    scale_values = list(y_values)
+    for line in axis.lines:
+        scale_values.extend(value for value in line.get_ydata() if value is not None and math.isfinite(value))
+    plotting.configure_y_axis(axis, scale_values + ([100] if value_mode == "index" else []))
+    if value_mode == "index" and min(scale_values) < 0:
+        upper, step = plotting.nice_y_axis(scale_values + [100])
+        low = min(scale_values)
+        axis.set_ylim(math.floor((low - abs(low) * .08) / step) * step, upper)
     axis.margins(x=0.03)
     axis.grid(True, linewidth=0.5, alpha=0.5)
     if x_values and isinstance(x_values[0], datetime):
@@ -184,19 +225,16 @@ def save_web_plot_png(
         step = max(1, len(points) // 8)
         ticks = x_values[::step]
         axis.set_xticks(ticks)
-    axis.text(
-        0.01,
-        0.99,
-        selection_label,
-        transform=axis.transAxes,
-        va="top",
-        ha="left",
-        fontsize=8,
-        bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "alpha": 0.75, "edgecolor": "#cccccc"},
-    )
+    context = selection_label
+    if value_mode == "index":
+        context += f" · Index 100 = dataset median {indexed['baseline']:g} · +25 per doubling (with +1 offset)"
+    elif value_mode == "log":
+        context += " · log10(value + 1)"
+    # Keep context and line notation outside the plotted area.
+    figure.text(0.5, 0.98, context, ha="center", va="top", fontsize=8, wrap=True)
     if use_time:
         figure.autofmt_xdate()
-    figure.tight_layout(rect=(0, 0.03 + 0.035 * math.ceil((len(periods) + len(chosen) + 1) / 3) if periods or chosen else 0, 1, 1))
+    figure.tight_layout(rect=(0, 0.03 + 0.035 * math.ceil((len(periods) + len(chosen) + 1) / 3) if has_legend else 0, 1, .95))
     try:
         figure.savefig(output_path, dpi=160)
     finally:

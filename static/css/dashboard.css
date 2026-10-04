@@ -205,6 +205,18 @@ code {
   margin: 10px 0 12px;
 }
 .progress.error-message { color: #9f1c1c; border-color: #d9b6b6; background: #fff6f6; }
+#page-feedback {
+  position: fixed;
+  inset: auto 16px 16px;
+  z-index: 30;
+  width: fit-content;
+  max-width: min(640px, calc(100vw - 32px));
+  max-height: min(30vh, 220px);
+  overflow: auto;
+  margin: 0 auto;
+  box-shadow: 0 4px 16px #202d4618;
+}
+.code-update-status { position: fixed; inset: auto 16px 82px auto; z-index: 31; max-width: min(420px, calc(100vw - 32px)); padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: #f8fafd; color: #465875; font-size: 12px; box-shadow: 0 4px 16px #202d4618; }
 .plot-field-control[hidden],
 .plot-quotient-control[hidden] { display: none !important; }
 .saved-plots-grid {
@@ -304,6 +316,12 @@ code {
 .sampling-modes [aria-selected="true"] { background: #e8edf5; border-color: #a7b3c6; color: #364a6a; }
 .sampling-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 14px; }
 #sample-result p { overflow-wrap: anywhere; }
+#nodes-result { overflow: visible; max-height: none; }
+#nodes-result details { margin-top: 16px; }
+.node-addresses { display: grid; gap: 6px; color: #43516a; overflow-wrap: anywhere; }
+.node-row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.node-target { width: 18px; height: 18px; min-height: 18px; padding: 0; accent-color: #596b88; }
+#node-task-videos { min-width: 0; width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 10px; font: inherit; resize: vertical; color: var(--text); background: #fff; }
 @media (max-width: 700px) {
   .main-nav { display: flex; gap: 6px; padding: 8px 16px; }
   .main-nav button { width: auto; flex: 1; padding-inline: 10px; font-size: 13px; }
@@ -402,3 +420,35 @@ input[type="number"]::-webkit-inner-spin-button { margin-left: 10px; margin-righ
   .menu-history { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "back creator" "hint hint"; gap: 8px; }
   #menu-back { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
+
+/* Four workspace destinations, with related tools on a quieter second row. */
+.workspace-groups { border-bottom: 1px solid var(--line); padding-bottom: 10px !important; }
+.workspace-groups button { font-weight: 650; padding-inline: 20px; }
+.workspace-subtools { min-height: 52px; margin-bottom: 4px; }
+.subtool-nav { padding: 0; gap: 2px; }
+.subtool-nav button { min-height: 36px; font-size: 12px; color: var(--muted); }
+.subtool-nav button[aria-current="page"] { background: #e9edf4; border-color: transparent; color: #35445e; box-shadow: none; }
+.dataset-context { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; margin-bottom: 20px; border: 1px solid #d9e0eb; border-radius: 10px; background: #f8fafd; }
+.dataset-context > div { min-width: 0; }
+.dataset-context .analysis-source-controls { flex: 1; }
+.analysis-source-controls > label { max-width: 560px; }
+.analysis-source-controls .row { margin-top: 12px; align-items: end; }
+.dataset-count-flow { padding: 10px 12px; border-radius: 6px; background: #eef2f8; color: #334967; font-weight: 600; overflow-wrap: anywhere; }
+.dataset-context p { margin: 4px 0 0; font-size: 12px; overflow-wrap: anywhere; }
+.dataset-context .eyebrow { font-size: 10px; letter-spacing: 1px; font-weight: 650; color: #59677e; }
+.dataset-context button { flex-shrink: 0; font-size: 12px; }
+.plot-advanced { margin: 12px 0; padding: 8px 0; border-block: 1px solid var(--line); }
+.plot-advanced > summary { font-size: 12px; font-weight: 600; padding-block: 8px; }
+.plot-advanced > summary span { font-weight: 400; }
+.plot-scale-help, #plot-anomaly-status { font-size: 12px; margin: 8px 0; }
+.anomaly-toggle { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
+.anomaly-toggle input { width: auto; margin: 0; accent-color: #596b88; }
+@media (max-width: 600px) {
+  .workspace-groups button { flex: 1; padding-inline: 10px; }
+  .dataset-context { flex-wrap: wrap; padding: 12px; gap: 10px; }
+  .workspace-subtools { min-height: 48px; }
+}
+
+.dataset-pacing { align-items: end; margin: 4px 0 12px; }
+.dataset-pacing label { flex: 0 1 230px; }
+.dataset-pacing p { flex: 1 1 240px; margin: 0 0 6px; font-size: 12px; }

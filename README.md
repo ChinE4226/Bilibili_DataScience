@@ -4,36 +4,56 @@ A local Python web application for exploring Bilibili creators and videos.
 
 ## Getting Started
 
-The existing environment was tested with Python 3.14. From the project directory:
+Python 3.10 or newer is required; the existing environment was tested with Python
+3.14. On macOS, double-click `setup-main.command` once to install the main app's
+dependencies, then double-click `start-main.command`. If this checkout already
+has a working Python environment, skip setup.
+
+For a terminal-based setup, run these commands from the project directory:
 
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt
+python -m pip install --no-cache-dir -r requirements.txt
 ```
 
 Start the dashboard:
 
 ```sh
-python -m bilibili_ds.web
+python -B -m bilibili_ds.web --no-reload
 ```
 
 Open the address printed by the server, normally
 [http://127.0.0.1:8000](http://127.0.0.1:8000). If that port is busy, the server tries
 the next available port. The server is intended for local, single-user use.
 
-On macOS, double-click `start-web.command` to open the website.
-The command `python web_server.py` also starts the same web application.
+The command `python web_server.py` also starts the same web application, with
+development reload enabled.
 
 ### Start and Stop on macOS
 
-1. Double-click `start-web.command`. Terminal opens and starts the website.
+1. Double-click `start-main.command`. Terminal opens and the dashboard opens in
+   Google Chrome. Interface edits update automatically; Python restarts are disabled
+   so editing a project file does not reset node work.
 2. Keep that Terminal window open. The server runs independently of ChatGPT.
-3. To stop, click the Terminal window and press **Control+C**. This stops both
-   the server and its automatic-reload watcher; no process IDs or commands are needed.
+3. To stop, click the Terminal window and press **Control+C**.
 
 Closing that Terminal window and confirming termination also shuts down the
-server and watcher. Closing only the browser tab does not stop the server.
+server. Closing only the browser tab does not stop the server.
+
+On a fetching Mac, use `setup-node.command` once and `start-node.command` to open
+the node's local web GUI in Google Chrome. Setup installs into a local Python
+environment and disables the pip download cache. No ZIP or distribution package
+is needed.
+
+New setup environments live in `~/Library/Application Support/BilibiliDataScience/.venv`
+on each Mac. Main and development launchers select the same interpreter and runtime.
+Account files default to that local application support folder. If it has no cached
+sign-in but the main checkout's `.runtime` does, both main launchers reuse that
+existing cache without copying credentials. The node always defaults to its local
+runtime. `BILIBILI_RUNTIME_DIR` explicitly overrides either choice.
+An existing working project environment remains usable;
+leave legacy `.venv`, `venv` and `.runtime` folders out of a source-only sync.
 
 ## Project Structure
 
@@ -53,6 +73,11 @@ docs/                Architecture and maintenance guide
 objects/             Saved Creator identities
 .runtime/            Private account caches, QR images, and generated plots
 requirements.txt     Python dependencies used by this checkout
+setup-main.command   One-time macOS main-app environment setup
+setup-node.command   One-time macOS fetching-node environment setup
+start-main.command   macOS dashboard with live interface updates and stable Python
+start-node.command   macOS fetching-node GUI launcher
+start-web.command    macOS development launcher with source reload
 web_server.py        Small compatibility web launcher
 web_reload.py        Compatibility supervisor imports
 ```
@@ -99,14 +124,40 @@ a gap when the baseline is zero. All indicators count valid plotted videos, not 
 Both chart panels appear in explicit PNG exports; no indicator computation writes files.
 Range presets are relative to the newest selected video's publication date.
 These are current metrics grouped by publication time, not historical snapshots
-of a video's changing metrics. The Y-axis always begins at zero and rescales to
+of a video's changing metrics. Raw and log-value Y-axes begin at zero; performance-index axes also include negative values when needed. The chart rescales to
 the visible range using round tick intervals; ratios retain decimal precision.
+
+Charts offer **Raw values**, **Log scale** (`log10(value + 1)`), and **Performance index**.
+The index uses `100 + 25 × log2((value + 1) / (dataset median + 1))`; 100 is typical
+within the selected cohort and approximately +25 represents doubling. The baseline
+uses all valid chart values, stays fixed during zooming, and changes with a new
+selection or metric. Index values are never clipped. Zero is valid; small cohorts
+may have unstable baselines. Index trend lines use index values; log-view trend
+lines are computed on raw values and then transformed. Relative20 always uses raw values.
+
+**Mark unusual values** highlights potential outliers with amber diamonds.
+In chronological order, each log-transformed value is compared with the preceding
+20 plotted videos, excluding itself. The modified z-score is
+`0.6745 × (ln(value + 1) − prior median) / prior MAD`; absolute scores above 3.5
+are flagged. The first 20 observations, zero-MAD windows and undated sequences
+have no score. **Analysis → Unusual values** lists flags for the most recently
+generated chart, including raw values, indices and scores. It does not change
+filters, delete rows or fetch data. Flags do not establish manipulation, and
+cumulative metrics remain affected by video age. See the
+[NIST method reference](https://www.itl.nist.gov/div898/handbook/eda/section3/eda35h.htm).
+Trend controls are collapsed under **Trend indicators**. PNG saves preserve value
+mode, markers and line/bar style; downloads capture the current view in memory.
+After updating an already running dashboard, reload the browser for these controls.
+Restart main to enable the updated Save PNG renderer; a restart clears RAM data and
+pairing, while browser refresh preserves them. Download current view works without a restart.
 
 ## Dashboard Navigation
 
 - **Explore** groups the Creators library, creator profiles, and single-video lookup.
-- **Workspace** groups Dataset, Statistics, Ratios, Charts, Weekly popular, Tasks, and Saved charts.
-  Collection and local filters appear on the Dataset page.
+- **Workspace** has four destinations: Data, Analysis, Tasks, and Nodes.
+  Data contains Creator dataset and Sampling (Random sample / Weekly popular).
+  Analysis contains Overview, Charts, Ratios & engagement, Unusual values, and Saved charts.
+  Collection and local filters appear only on Creator dataset; analysis shows a compact dataset summary.
 - **Settings** contains account, sign-in, and request controls.
 
 The dashboard opens on Workspace. Fetching updates dataset rows and collapses
@@ -114,6 +165,26 @@ collection controls without changing the active page. Switching tools keeps your
 to a section restores its last view. Saved charts remain available without a fetch.
 Collection and filter controls appear only on Dataset; Statistics, Ratios, and Charts
 reuse its selection and filters. The creator selector shares the Back button row.
+
+Random samples and weekly reports now have **Use in Analysis**. This opens Overview
+on the exact collected rows; Charts, Ratios, Unusual values and processing-only
+batch tasks use the same collection without fetching again. The **Analysis collection**
+menu switches between the creator dataset and retained sampling collections.
+Switching clears the previous source's analysis results. Your creator dataset stays
+available, with its own local filters. Sampling collections have separate inclusive
+view filters in the Analysis summary; run a tool to apply them.
+
+The summary names the source and collection interval, and separates requested,
+checked, valid/sampled and active row counts. For example, **100 requested →
+102 checked → 100 valid → 86 after local filters**. Random samples also show the
+eligible pool before the draw. Collection scope retains the issue or keyword,
+search order, bounds and seed. Follower-based ratios require a creator dataset;
+mixed-creator collections support the six video metrics.
+
+The latest four sampling collections (at most 2,500 rows each) stay in server RAM.
+Expired collections require an explicit recollection on Sampling; they never
+silently refetch. No collection or report files are written. Browser reload lets
+you choose these retained collections again; restarting main clears them.
 
 ## Running Several Tasks
 
@@ -135,7 +206,7 @@ running a batch does not save charts or create dataset files.
 
 ## Random Video Samples
 
-Open **Workspace → Sampling → Random sample**. Enter a search keyword, choose
+Open **Workspace → Data → Sampling → Random sample**. Enter a search keyword, choose
 the candidate order, and set the sample size and candidate limit (up to 500).
 Optional filters include a Bilibili category ID, publication dates in Beijing time,
 and an inclusive range for any of the six metrics. Metric boundaries support
@@ -157,9 +228,58 @@ Requests use the configured pacing and stop if the server rejects collection.
 The creator dataset is kept separately. Sample results stay in browser memory;
 no dataset or report files are written.
 
+## Fetching Nodes on Other Macs
+
+Pair a Mac once under **Workspace → Nodes**. Then return to **Dataset** and use
+the usual **Fetch / Refresh** button. **Fetch on → Automatic** uses an idle
+compatible node when ready, or this Mac when nodes are absent, busy, paused,
+offline or incompatible. The choice is made again on each refresh. Choose
+**Connected node only** to require remote collection, or **This Mac only** for
+local collection. **Parallel · this Mac + ready nodes** shares one collection:
+the main Mac reads the creator's list pages, then all participating Macs fetch
+different video details concurrently. Automatic chooses one Mac per collection;
+Parallel explicitly requires at least one ready node with the latest source.
+The returned rows fill the usual in-memory working dataset;
+Statistics, Ratios, Charts and batch tasks reuse it without another collection.
+
+Set **Collection requests per second → Apply pacing** on Dataset (0.1–4).
+Settings shows the same value. Connected nodes honor this rate with their own
+local cap; Parallel divides it across the participating Macs. It does not multiply
+the selected rate by the number of nodes. Sync, stop and restart older node apps,
+then re-pair, to advertise support for pacing and Parallel collections.
+Invalid metric rows are replaced until the requested valid count is reached or
+the scan limit is reached. A rejection stops collection and preserves the previous
+dataset. Only one operation can replace the working dataset at a time.
+
+Transient bottom notices dismiss after four seconds (eight seconds for errors).
+Hovering holds a dashboard notice open. Live task progress stays visible while running.
+
+The node GUI includes **Check connection**, which verifies the main listener
+without consuming a pairing code. Copy the LAN address including the actual
+port from the Nodes page. For chat coordination over iCloud, use
+[MAIN_MAC.txt](docs/coordination/MAIN_MAC.txt) and
+[NODE_MAC.txt](docs/coordination/NODE_MAC.txt), with one chat writing each file.
+
+Open **Workspace → Nodes** to start the separate connection service, generate
+one-use pairing codes, and pause/resume or remove nodes. Normal fetching stays
+on Dataset; Tasks uses the same automatic routing. The optional **Advanced
+collections** section holds the separate queue for links and separate reports.
+Fetching Macs run a lightweight app with a local web GUI for pairing, pacing,
+pausing and progress. Video links are split into batches across nodes; creator
+collections target a valid video count on an assigned node. Returned results show
+performance and engagement averages and remain separate from the working dataset.
+
+Copy or clone the source project on each fetching Mac. Double-click
+`setup-node.command` once, then `start-node.command`. The node setup installs
+the SDK, HTTP client and their dependencies without Matplotlib; running the node does not import the dashboard
+or Matplotlib. Keep each Mac's environment and account files local instead of
+copying `.venv`, `venv`, `.runtime`, or personal `objects/creators.json` contents.
+See [distributed setup and recovery](docs/distributed.md) for the connection steps,
+RAM-only state, supported tasks and trusted-LAN/private-VPN scope.
+
 ## Weekly Popular Averages
 
-Open **Workspace → Sampling → Weekly popular** and paste a Bilibili weekly page URL, such as
+Open **Workspace → Data → Sampling → Weekly popular** and paste a Bilibili weekly page URL, such as
 `https://www.bilibili.com/v/popular/weekly?num=393`, or enter its issue number.
 **Fetch / Analyze issue** collects the list's metric data and shows totals, means,
 medians, extrema and P90 for views, likes, replies, favorites, coins and shares.
@@ -213,20 +333,26 @@ The dashboard shares one dataset across local browser tabs.
 
 ## Development Reload
 
-Automatic reload is enabled by default. Saving Python files under `bilibili_ds/`,
-HTML under `templates/`, or CSS/JavaScript under `static/` restarts
-the worker and refreshes open pages. Root compatibility scripts are watched too.
-The watcher survives application syntax errors and retries after the next save.
-Changes to the watcher itself take effect after restarting the launcher.
+Both main and development modes update the browser automatically when source changes:
+CSS updates in place. HTML and JavaScript refresh the page after the current browser
+task and collection finish. The active page, sampling tab, analysis source, form
+values and scroll position are restored. Passwords and pairing codes are excluded.
+The independent browser watcher can recover after fixing a syntax error in `app.js`.
+Interface updates keep the Python process, RAM datasets/cohorts and node connections.
+Browser-rendered analysis results need running again on the retained data.
 
-The browser preserves the active tab and form values. Fetched results,
-in-progress requests, QR login attempts, and other in-memory state reset.
+Use `start-web.command` for automatic Python restarts too. Saving Python files under
+`bilibili_ds/` or root compatibility scripts restarts the development worker.
+This clears its RAM datasets, coordinator state, in-progress requests and QR attempts.
+The supervisor survives Python syntax errors and retries after the next save.
+With `start-main.command`, Python edits show a restart notice and leave the backend
+running. Changes to the supervisor itself require restarting the launcher.
 Updating `objects/creators.json` refreshes the Creator list without a server restart.
 Caches, plots, and virtual environments do not trigger restarts.
 This refreshes edited source files, not Bilibili data; fetch data again explicitly
 to get updated counts.
 
-Disable automatic reload or choose another port with:
+Disable automatic Python restarts or choose another port with:
 
 ```sh
 python -m bilibili_ds.web --no-reload --port 8010
@@ -263,6 +389,8 @@ Run the analysis browser checks with `node tests/browser/analysis.cjs`. They ver
 local chart changes, filter payloads, and desktop/mobile layout using sample data.
 Run `node tests/browser/batch.cjs` for task ordering, dataset reuse, captured settings,
 result rendering, failure handling, stopping, and responsive Tasks layout.
+Run `node tests/browser/nodes.cjs` for pairing through two node web GUIs,
+distributed result collection, targeting, creator tasks, revocation and layout.
 
 Set `PLAYWRIGHT_MODULE` to a Playwright package path when it is not in Node's
 normal lookup path. Screenshots are written to a temporary directory.
@@ -313,6 +441,10 @@ Generated runtime files are ignored by Git. Do not commit credentials.
 - `/api/health`: selected Creator, account summary, and request rate.
 - `POST /api/weekly-analysis`: collect a weekly issue and calculate cohort averages.
 - `POST /api/random-sample`: collect a bounded, filtered keyword-search pool and return a random video sample with averages.
+- `/api/nodes`: local-only node service, paired Macs and collection queue.
+- `/api/nodes/result?id=...`: local-only received videos and cohort analysis.
+- `POST /api/nodes/service`, `/api/nodes/pairing`, `/api/nodes/action`: local node connection controls.
+- `POST /api/nodes/tasks`, `/api/nodes/tasks/action`: queue, cancel or clear distributed collections.
 - `/api/creators`: saved Creator list.
 - `/api/progress`: current operation progress.
 - `/api/plots`: saved PNG plot list.

@@ -9,6 +9,7 @@ from bilibili_api import user, video
 
 from bilibili_ds import accounts as account_service, client, selection as video_selection, videos as video_service
 from bilibili_ds.distributions import has_complete_metrics
+from bilibili_ds.fetch_context import DETAIL_BATCHER
 from bilibili_ds.web.creators import selected_creator
 from bilibili_ds.web.progress import set_progress
 from bilibili_ds.web.serializers import (
@@ -69,10 +70,12 @@ async def fetch_web_video_summaries(
             count=len(fetched_items),
         )
         try:
-            page_data = await uploader.get_videos(pn=page_number, ps=page_size, order=order)
+            page_data = await video_service.fetch_creator_video_page(
+                uploader, pn=page_number, ps=page_size, order=order, collected=len(fetched_items),
+                requested=target_count, item_kind='video summaries')
         except Exception as exc:
             set_progress(f"Failed to fetch video summary page {page_number}: {exc}", percent=percent)
-            raise ValueError(f"Video collection stopped on page {page_number}. Try refreshing later.") from exc
+            raise
 
         page_items = page_data.get("list", {}).get("vlist", [])
         if not page_items:
@@ -104,6 +107,17 @@ async def enrich_web_video_items(
         set_progress(f"{progress_label}: no video details to fetch.", percent=end_percent, count=0)
         return enriched_items
 
+    batcher = DETAIL_BATCHER.get()
+    if batcher is not None:
+        for offset in range(0, total, 30):
+            batch = await batcher(items[offset:offset + 30], credential)
+            for enriched in batch:
+                check_detail_rejection(enriched)
+            enriched_items.extend(batch)
+            set_progress(f"{progress_label}: {len(enriched_items)}/{total} details fetched across Macs.",
+                         percent=start_percent + int(len(enriched_items) / total * (end_percent - start_percent)), count=len(enriched_items))
+        return enriched_items
+
     for index, item in enumerate(items, start=1):
         set_progress(
             f"{progress_label}: fetching detail {index}/{total}.",
@@ -124,51 +138,75 @@ async def enrich_web_video_items(
 
 
 def check_detail_rejection(item):
-    if item.get("detail_error_code") in {-101, -403, -412, -352, -509}:
+    if (item.get("detail_error_code") in {-101, -403, -412, -352, -509}
+            or item.get("detail_error_status") in {401, 403, 412, 429}):
         raise ValueError("Bilibili rejected video detail requests. Collection stopped; try refreshing later.")
 
 
-async def fetch_valid_video_count(uploader, credential, start, requested, total, action_label):
+async def fetch_valid_video_count(uploader, credential, start, requested, total, action_label, *, max_candidates=None, max_pages=None):
     """Scan from a raw publication position until enough unique valid rows exist."""
     page_size = 30
     page_number = (start - 1) // page_size + 1
     offset = (start - 1) % page_size
     items, seen = [], set()
     examined = skipped = duplicates = 0
+    pages = 0
     while len(items) < requested and (page_number - 1) * page_size < total:
+        if max_pages is not None and pages >= max_pages or max_candidates is not None and examined >= max_candidates:
+            break
+        pages += 1
         set_progress(f"{action_label}: {len(items)}/{requested} valid videos; fetching summary page {page_number}.",
                      percent=15 + int(73 * len(items) / requested), count=len(items))
-        try:
-            response = await uploader.get_videos(pn=page_number, ps=page_size, order=user.VideoOrder.PUBDATE)
-        except Exception as exc:
-            raise ValueError(f"Video collection stopped on page {page_number}. Try refreshing later.") from exc
+        response = await video_service.fetch_creator_video_page(
+            uploader, pn=page_number, ps=page_size, order=user.VideoOrder.PUBDATE,
+            collected=len(items), requested=requested)
         await asyncio.sleep(client.request_delay_seconds())
         summaries = response.get("list", {}).get("vlist", [])
         if not summaries:
             break
-        for summary in summaries[offset:]:
-            bvid = summary.get("bvid")
-            if bvid and bvid in seen:
-                duplicates += 1
-                continue
-            if bvid:
-                seen.add(bvid)
-            item = await video_service.fetch_video_detail(summary, credential)
-            examined += 1
-            await asyncio.sleep(client.request_delay_seconds())
-            check_detail_rejection(item)
-            if has_complete_metrics(item):
-                items.append(item)
-            else:
-                skipped += 1
-            set_progress(f"{action_label}: {len(items)}/{requested} valid videos · {examined} checked · {skipped} invalid skipped.",
-                         percent=15 + int(73 * len(items) / requested), count=len(items))
-            if len(items) == requested:
+        cursor = offset
+        batcher = DETAIL_BATCHER.get()
+        while cursor < len(summaries) and len(items) < requested:
+            width = min(30 if batcher else 1, requested - len(items))
+            if max_candidates is not None:
+                width = min(width, max_candidates - examined)
+            if width <= 0:
                 break
+            candidates = []
+            while cursor < len(summaries) and len(candidates) < width:
+                summary = summaries[cursor]
+                cursor += 1
+                bvid = summary.get('bvid')
+                if bvid and bvid in seen:
+                    duplicates += 1
+                    continue
+                if bvid:
+                    seen.add(bvid)
+                candidates.append(summary)
+            if not candidates:
+                continue
+            if batcher:
+                enriched = await batcher(candidates, credential)
+            else:
+                enriched = [await video_service.fetch_video_detail(candidates[0], credential)]
+            for item in enriched:
+                examined += 1
+                check_detail_rejection(item)
+                if has_complete_metrics(item):
+                    items.append(item)
+                else:
+                    skipped += 1
+                set_progress(f"{action_label}: {len(items)}/{requested} valid videos · {examined} checked · {skipped} invalid skipped.",
+                             percent=15 + int(73 * len(items) / requested), count=len(items))
+            if not batcher:
+                await asyncio.sleep(client.request_delay_seconds())
         offset = 0
         page_number += 1
-    return items, {"requested": requested, "examined": examined, "skipped_invalid": skipped,
-                   "skipped_duplicates": duplicates, "shortfall": max(0, requested - len(items))}
+    collection = {"requested": requested, "examined": examined, "skipped_invalid": skipped,
+                  "skipped_duplicates": duplicates, "shortfall": max(0, requested - len(items))}
+    if len(items) < requested and ((max_pages is not None and pages >= max_pages) or (max_candidates is not None and examined >= max_candidates)):
+        collection['limited'] = True
+    return items, collection
 
 
 def valid_collection(items):
@@ -177,12 +215,16 @@ def valid_collection(items):
                    "skipped_duplicates": 0, "shortfall": 0}
 
 
-async def fetch_selected_video_items(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], str, int | None, dict]:
-    selected = selected_creator()
+_LOCAL_CREDENTIAL = object()
+
+
+async def fetch_selected_video_items(payload: dict[str, Any], *, creator_uid=None, credential_override=_LOCAL_CREDENTIAL,
+                                     max_candidates=None, max_pages=None) -> tuple[list[dict[str, Any]], str, int | None, dict]:
+    selected = {"uid": creator_uid} if creator_uid is not None else selected_creator()
     if selected is None:
         raise ValueError("No Creator is selected.")
 
-    credential = account_service.credential_from_env()
+    credential = account_service.credential_from_env() if credential_override is _LOCAL_CREDENTIAL else credential_override
     uploader = user.User(int(selected["uid"]), credential=credential)
     selection = payload.get("selection") if isinstance(payload.get("selection"), dict) else {}
     kind = selection.get("kind") or "latest"
@@ -192,7 +234,7 @@ async def fetch_selected_video_items(payload: dict[str, Any]) -> tuple[list[dict
     client.configure_bilibili_client()
     try:
         set_progress(f"{action_label}: checking selected Creator video count.", running=True, percent=5, count=0)
-        first_page = await uploader.get_videos(pn=1, ps=1, order=user.VideoOrder.PUBDATE)
+        first_page = await video_service.fetch_creator_video_page(uploader, pn=1, ps=1, order=user.VideoOrder.PUBDATE)
         total = video_service.video_total_from_response(first_page)
         await asyncio.sleep(client.request_delay_seconds())
         if kind == "position":
@@ -207,10 +249,13 @@ async def fetch_selected_video_items(payload: dict[str, Any]) -> tuple[list[dict
                                        "skipped_duplicates": 0, "shortfall": requested or 0}
 
         if kind == "position":
-            items, collection = await fetch_valid_video_count(uploader, credential, start, end - start + 1, total, action_label)
+            items, collection = await fetch_valid_video_count(uploader, credential, start, end - start + 1, total, action_label,
+                                                            max_candidates=max_candidates, max_pages=max_pages)
             set_progress(f"Selected {len(items)} video(s).", percent=90, count=len(items))
             return sort_by_published_time(items), f"{end - start + 1} valid videos starting at published-time position {start}", total, collection
 
+        if max_candidates is not None and total > max_candidates:
+            raise ValueError(f"This Creator has {total} videos. Remote time/metric selection supports up to {max_candidates}; use a published-time number range or fetch on this Mac.")
         summaries = await fetch_web_video_summaries(
             uploader,
             total,
