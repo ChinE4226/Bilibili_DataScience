@@ -7,7 +7,31 @@ from unittest.mock import AsyncMock, Mock, patch
 from bilibili_ds.distributed.coordinator import Coordinator
 from bilibili_ds.distributed.protocol import ProtocolError, coordinator_url, frequency, video_ids
 from bilibili_ds.distributed.worker import Worker
+from bilibili_ds.distributed import worker as worker_module
 from bilibili_ds.web import distributed_dataset
+
+
+class CableTransportTests(unittest.TestCase):
+    def test_remote_control_requests_bind_bridge_source_and_keep_secrets_in_memory(self):
+        response = Mock()
+        response.read.return_value = b'{"ok": true}'
+        opener = Mock()
+        opener.open.return_value.__enter__ = Mock(return_value=response)
+        opener.open.return_value.__exit__ = Mock(return_value=False)
+        with patch.object(worker_module, 'thunderbolt_address', return_value='169.254.138.156'), \
+             patch.object(worker_module, 'build_opener', return_value=opener) as build:
+            self.assertEqual(worker_module.request_json('http://169.254.57.204:8010', '/node/heartbeat', {}, 'fixture-token'), {'ok': True})
+        handlers = build.call_args.args
+        cable = [handler for handler in handlers if isinstance(handler, (worker_module.CableHTTPHandler, worker_module.CableHTTPSHandler))]
+        self.assertEqual([handler.source for handler in cable], [('169.254.138.156', 0)] * 2)
+        self.assertEqual(opener.open.call_args.args[0].get_header('Authorization'), 'Bearer fixture-token')
+
+    def test_missing_cable_never_tries_wifi_transport(self):
+        with patch.object(worker_module, 'thunderbolt_address', side_effect=ValueError('No active Thunderbolt Bridge')), \
+             patch.object(worker_module, 'build_opener') as build:
+            with self.assertRaisesRegex(ProtocolError, 'No active Thunderbolt Bridge'):
+                worker_module.request_json('http://169.254.57.204:8010', '/node/health')
+        build.assert_not_called()
 
 
 def bvid(index):
@@ -53,6 +77,19 @@ class CoordinatorTests(unittest.TestCase):
             self.core.pair({'protocol': 2})
         with self.assertRaises(ProtocolError):
             self.core.dispatch('/node/claim', 'wrong token', {})
+
+    def test_hot_plug_updates_connection_addresses_without_losing_pairing(self):
+        node = self.pair()
+        task = self.task()
+        address = {'url': 'http://169.254.57.204:8010', 'interface': 'bridge0',
+                   'kind': 'thunderbolt', 'label': 'Thunderbolt Bridge'}
+        with patch('bilibili_ds.distributed.coordinator.connection_addresses', return_value=[address]):
+            snapshot = self.core.snapshot()
+        self.assertEqual(snapshot['addresses'], [address])
+        self.assertEqual(snapshot['urls'], [address['url']])
+        self.assertEqual(snapshot['nodes'][0]['name'], 'Mac')
+        self.assertEqual(snapshot['tasks'][0]['id'], task['id'])
+        self.assertIsNotNone(self.claim(node), 'Transport address changes do not revoke RAM pairing')
 
     def test_split_work_exact_ids_metrics_and_duplicate_completion(self):
         a, b = self.pair('A'), self.pair('B')

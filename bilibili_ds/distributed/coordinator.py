@@ -12,7 +12,7 @@ import time
 
 from bilibili_ds.distributed.protocol import (VERSION, CAPABILITIES, MAX_BODY, ProtocolError,
     integer, frequency, json_request, timestamp, video_ids, wire_video, workspace_selection)
-from bilibili_ds.distributed.network import connection_urls
+from bilibili_ds.distributed.network import connection_addresses, thunderbolt_address
 from bilibili_ds.distributions import has_complete_metrics
 from bilibili_ds.weekly import summarize_weekly_items
 
@@ -29,16 +29,18 @@ class Coordinator:
         self.urls = []
         self.lease_seconds = 60
 
-    def start(self, port=8010, host="0.0.0.0"):
+    def start(self, port=8010, host=None):
         with self.lock:
             if self.server is not None:
                 raise ValueError("Node connections are already running.")
+            if host is None:
+                host = thunderbolt_address()
             self.server = NodeServer((host, port), NodeHandler)
             self.server.coordinator = self
             self.thread = Thread(target=self.server.serve_forever, daemon=True)
             self.thread.start()
             port = self.server.server_port
-            self.urls = connection_urls(port, host)
+            self.urls = [entry['url'] for entry in connection_addresses(port, host)]
             self.new_pairing()
             return self.snapshot()
 
@@ -364,6 +366,10 @@ class Coordinator:
             return deepcopy(unit['items']), unit['selection_label'], unit['source_total'], collection
 
     def snapshot(self):
+        # Refresh hot-plugged cable addresses without restarting the listener or
+        # losing RAM pairings/tasks. Interface discovery uses a short RAM cache.
+        server = self.server
+        addresses = connection_addresses(server.server_port, getattr(server, 'server_address', ('0.0.0.0',))[0], fresh=False) if server else []
         with self.lock:
             self._expire()
             now = self.clock()
@@ -374,7 +380,9 @@ class Coordinator:
                           else 'paused' if not node['enabled'] or not node['ready'] else 'idle')
                 nodes.append({key: deepcopy(node[key]) for key in ('id', 'name', 'enabled', 'ready', 'capabilities', 'unit_id', 'message', 'progress')} |
                              {'status': status, 'last_seen': timestamp(node['last_seen'])})
-            return {'protocol': VERSION, 'running': bool(self.server), 'port': port, 'urls': list(dict.fromkeys(self.urls)) if port else [],
+            self.urls = [entry['url'] for entry in addresses] if self.server is server else []
+            return {'protocol': VERSION, 'running': bool(self.server), 'port': port, 'urls': self.urls if port else [],
+                'addresses': addresses if port and self.server is server else [],
                 'pairing': {'code': self.pair_code, 'expires_at': timestamp(self.pair_expires)} if self.pair_code and now < self.pair_expires else None,
                 'nodes': nodes, 'tasks': [self._job_summary(job) for job in reversed(list(self.jobs.values()))]}
 

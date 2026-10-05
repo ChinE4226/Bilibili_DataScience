@@ -231,6 +231,12 @@ server RAM and return after a browser refresh; no dataset or report files are wr
 
 ## Fetching Nodes on Other Macs
 
+Connect the Macs with a Thunderbolt cable. **Workspace → Nodes** starts a listener
+bound only to main's Thunderbolt Bridge address; copy that numeric URL into the
+node GUI. Worker connections bind to their local bridge IP and never fall back
+to Wi-Fi. Each Mac's normal internet connection still handles Bilibili requests.
+An active bridge IPv4 address is required. See [Thunderbolt setup](docs/distributed.md#connect-through-a-thunderbolt-cable).
+
 Pair a Mac once under **Workspace → Nodes**. Then return to **Dataset** and use
 the usual **Fetch / Refresh** button. **Fetch on → Automatic** uses an idle
 compatible node when ready, or this Mac when nodes are absent, busy, paused,
@@ -256,7 +262,7 @@ Transient bottom notices dismiss after four seconds (eight seconds for errors).
 Hovering holds a dashboard notice open. Live task progress stays visible while running.
 
 The node GUI includes **Check connection**, which verifies the main listener
-without consuming a pairing code. Copy the LAN address including the actual
+without consuming a pairing code. Copy the Thunderbolt Bridge address including the actual
 port from the Nodes page. For chat coordination over iCloud, use
 [MAIN_MAC.txt](docs/coordination/MAIN_MAC.txt) and
 [NODE_MAC.txt](docs/coordination/NODE_MAC.txt), with one chat writing each file.
@@ -276,7 +282,7 @@ the SDK, HTTP client and their dependencies without Matplotlib; running the node
 or Matplotlib. Keep each Mac's environment and account files local instead of
 copying `.venv`, `venv`, `.runtime`, or personal `objects/creators.json` contents.
 See [distributed setup and recovery](docs/distributed.md) for the connection steps,
-RAM-only state, supported tasks and trusted-LAN/private-VPN scope.
+RAM-only state, supported tasks and direct Thunderbolt connection scope.
 
 ## Weekly Popular Averages
 

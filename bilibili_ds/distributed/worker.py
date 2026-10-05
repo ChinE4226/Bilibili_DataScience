@@ -5,17 +5,41 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import socket
 import errno
+import ipaddress
+from functools import partial
+from http.client import HTTPConnection, HTTPSConnection
 from threading import Event, RLock, Thread
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPHandler, HTTPSHandler, ProxyHandler, Request, build_opener
+from urllib.parse import urlparse
 
 from bilibili_ds.distributed.fetch import fetch_unit
 from bilibili_ds.distributed.protocol import VERSION, CAPABILITIES, MAX_BODY, ProtocolError, coordinator_url, frequency
+from bilibili_ds.distributed.network import thunderbolt_address
 
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None
+
+
+class CableHTTPHandler(HTTPHandler):
+    def __init__(self, source):
+        super().__init__()
+        self.source = source
+
+    def http_open(self, request):
+        return self.do_open(partial(HTTPConnection, source_address=self.source), request)
+
+
+class CableHTTPSHandler(HTTPSHandler):
+    def __init__(self, source):
+        super().__init__()
+        self.source = source
+
+    def https_open(self, request):
+        return self.do_open(partial(HTTPSConnection, source_address=self.source), request,
+                            context=self._context)
 
 
 def request_json(base, path, data=None, token=''):
@@ -26,8 +50,19 @@ def request_json(base, path, data=None, token=''):
     if token:
         headers['Authorization'] = 'Bearer ' + token
     request = Request(base + path, data=body, headers=headers, method='POST' if body is not None else 'GET')
-    # Always connect directly; never redirect a credential to another address.
-    opener = build_opener(ProxyHandler({}), NoRedirect())
+    # Bind control traffic to the cable's local IP. This also avoids ambiguous
+    # 169.254/16 routes when Wi-Fi or USB Ethernet has a self-assigned address.
+    host = urlparse(base).hostname
+    try:
+        same_mac = host == 'localhost' or ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        same_mac = False
+    try:
+        source = None if same_mac else (thunderbolt_address(), 0)
+    except ValueError as error:
+        raise ProtocolError(str(error), 503) from None
+    # Never use proxies, redirects or automatic Wi-Fi fallback for node traffic.
+    opener = build_opener(ProxyHandler({}), NoRedirect(), CableHTTPHandler(source), CableHTTPSHandler(source))
     try:
         with opener.open(request, timeout=8) as response:
             result = json.loads(response.read(MAX_BODY + 1))
@@ -44,9 +79,9 @@ def request_json(base, path, data=None, token=''):
         if getattr(reason, 'errno', None) in {errno.ECONNREFUSED, 10061}:
             message = f'Connection refused at {base}. Start node connections on the main Mac, then copy its actual connection address and port.'
         elif isinstance(reason, socket.gaierror):
-            message = f'Cannot resolve {base}. Use the LAN IP address shown in the main Mac Nodes page.'
+            message = f'Cannot resolve {base}. Use the numeric Thunderbolt Bridge IP address shown in the main Mac Nodes page.'
         else:
-            message = f'Cannot reach {base}: {reason}. Check that both Macs are on the same LAN and the main service is running.'
+            message = f'Cannot reach {base}: {reason}. Check the Thunderbolt cable/Bridge addresses and that the main service is running. Node traffic does not fall back to Wi-Fi.'
         raise ProtocolError(message, 503) from None
     if not isinstance(result, dict):
         raise ValueError('The connection service returned invalid JSON data.')

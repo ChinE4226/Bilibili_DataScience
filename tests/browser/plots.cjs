@@ -372,7 +372,7 @@ const finished = once(server, "exit");
     await page.evaluate(async () => {
       const { uiState } = await import('/static/js/state.js');
       const view = await import('/static/js/views/plots.js');
-      uiState.chartExportVersion = 2;
+      uiState.chartExportVersion = 3;
       view.renderPlot({ plot_id: 'sample', y_label: 'Views', points: [...Array.from({ length: 20 }, (_, i) => 100 + i * 10), 10000].map((value, i) => ({ value, title: `Robust ${i + 1}`, label: `2026-09-${String(i + 1).padStart(2, '0')} 12:00:00` })) });
       view.syncPlotControls();
     });
@@ -418,6 +418,32 @@ const finished = once(server, "exit");
     assert.ok(Math.abs(pure[0].values[3] - 125) < 1e-10);
     assert.deepEqual(pure[1], Array(21).fill(null));
     assert.equal(pure[2].at(-1), -20);
+    // A narrow index cohort must occupy useful vertical space instead of hugging 100.
+    await page.evaluate(async () => {
+      const view = await import('/static/js/views/plots.js');
+      view.renderPlot({ y_label: 'Views', points: Array.from({ length: 100 }, (_, i) => ({
+        value: 1000 + Math.sin(i / 3) * 20, title: `Near median ${i + 1}`,
+        label: new Date(Date.UTC(2026, 0, i + 1)).toISOString().slice(0, 19).replace('T', ' ')
+      })) });
+    });
+    const narrow = await chartState();
+    assert.ok(narrow.min > 95 && narrow.max < 105, 'Index line must fit variation around 100');
+    const spread = Math.max(...narrow.data) - Math.min(...narrow.data);
+    assert.ok(spread / (narrow.max - narrow.min) > .4, 'Near-median variation must be readable');
+    await page.locator('#plot-chart').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(output, 'index-narrow.png') });
+    await page.locator('#plot-style-trigger').click();
+    await page.locator('#plot-style-options').getByRole('option', { name: 'Bars', exact: true }).click();
+    assert.equal((await chartState()).min, 0, 'Index bars preserve their zero origin');
+    await page.locator('#plot-style-trigger').click();
+    await page.locator('#plot-style-options').getByRole('option', { name: 'Line', exact: true }).click();
+    assert.ok((await chartState()).min > 95, 'Switching back to lines must refit the vertical axis');
+    await page.evaluate(async () => {
+      const view = await import('/static/js/views/plots.js');
+      view.renderPlot({ y_label: 'Views', points: [{ value: 1000, title: 'Constant', label: '2026-09-01 12:00:00' }] });
+    });
+    const flat = await chartState();
+    assert.ok(flat.min < 100 && flat.max > 100, 'Constant data has a finite baseline range');
     await page.click('#plot-scale-trigger');
     await page.locator('#plot-scale-options').getByRole('option', { name: 'Raw values', exact: true }).click();
     for (const id of ['ema10', 'ema20', 'median5', 'median10', 'relative20']) await page.click(`[data-indicator="${id}"]`);

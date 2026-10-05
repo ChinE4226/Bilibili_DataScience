@@ -11,6 +11,34 @@ from bilibili_ds.web import plots
 
 
 class PlottingTests(unittest.TestCase):
+    def test_index_axis_fits_narrow_values_and_keeps_baseline_and_extremes(self):
+        for values in ([99, 100, 101], [100, 100], [-150, 100, 180], [110, 120], []):
+            low, high, step = plotting.index_y_axis(values)
+            self.assertLess(low, min([100] + values))
+            self.assertGreater(high, max([100] + values))
+            self.assertGreater(step, 0)
+        low, high, _ = plotting.index_y_axis([99, 100, 101])
+        self.assertGreater(low, 95)
+        self.assertLess(high, 105)
+
+    def test_index_line_export_fits_values_but_bars_keep_zero(self):
+        for style in ('line', 'bar'):
+            figure, axis = plotting.plt.subplots()
+            self.addCleanup(plotting.plt.close, figure)
+            points = [{'label': str(i), 'value': value} for i, value in enumerate([980, 1000, 1020])]
+            with patch.object(plotting.plt, 'subplots', return_value=(figure, axis)), \
+                    patch.object(figure, 'savefig'), patch.object(plots.config.PLOTS_DIR.__class__, 'mkdir'):
+                plots.save_web_plot_png({'name': 'Example', 'uid': '42'}, 'all', 'Views', 'Views', points,
+                                       value_mode='index', chart_style=style)
+            low, high = axis.get_ylim()
+            self.assertLess(low, 100)
+            self.assertGreater(high, 100)
+            if style == 'line':
+                self.assertGreater(low, 95)
+                self.assertLess(high, 105)
+            else:
+                self.assertEqual(low, 0)
+
     def test_round_zero_based_axes(self):
         for values, expected in [([0], (1, 0.2)), ([10000, 30000], (40000, 10000)),
                                  ([100000], (150000, 50000))]:

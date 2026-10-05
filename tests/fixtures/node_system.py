@@ -6,6 +6,7 @@ from pathlib import Path
 import signal
 import sys
 from threading import Thread
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from bilibili_ds.distributed.coordinator import COORDINATOR
@@ -52,6 +53,10 @@ async def fake_local_fetch(payload):
     return rows, 'Fixture local number range', 1000, {'examined': count, 'skipped_invalid': 0}
 
 actions.fetch_selected_video_items = fake_local_fetch
+
+# Exercise the normal Start button on a deterministic offline loopback link.
+# Production discovers/binds Thunderbolt Bridge instead.
+patch('bilibili_ds.distributed.coordinator.thunderbolt_address', return_value='127.0.0.1').start()
 
 
 class NodePreviewHandler(PreviewHandler):

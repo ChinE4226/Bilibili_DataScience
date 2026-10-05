@@ -153,8 +153,15 @@ Web-specific creator selection rules and result formats live in `web/`.
   append to one bounded RAM job; completed leases remain valid for delivery retries.
   Invalid rows trigger replacement batches; rejection cancels active work and leaves
   the retained dataset unchanged. Automatic retains one-Mac routing; Parallel is explicit.
-  `distributed/network.py` discovers LAN addresses using local interfaces, and
-  node health checks verify the chosen connection port before consuming a code.
+  `distributed/network.py` discovers active Thunderbolt Bridge IPv4 addresses from
+  local interface metadata, cached for three seconds in RAM. Production listener
+  startup binds only the bridge address and fails if no bridge is available.
+  Worker HTTP/HTTPS control connections bind their source to the local bridge IP,
+  disable proxies/redirects and never fall back to Wi-Fi. This avoids ambiguous
+  link-local routes while each Mac's Bilibili client keeps its own normal internet
+  routing. The GUI lists only the bound bridge URL; node health checks verify the
+  chosen port before consuming a code. An address change requires listener restart
+  and pairing again; no OS network or routing settings are changed by the app.
 - `distributions.py` contains pure quantile, histogram, IQR, quality, and engagement
   calculations. `static/js/views/analysis.js` renders tables and inline SVG charts
   without PNG generation or disk writes.

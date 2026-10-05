@@ -66,7 +66,7 @@ class PreviewHandler(BilibiliDataScienceHandler):
             self.send_bytes(PNG, "image/png")
             return
         fixtures = {
-            "/api/health": {"workspace_restore_version": 1, "chart_export_version": 2, "collection_analysis_version": 1, "account": "Layout preview (sample data)", "selected_creator": CREATOR, "request_frequency": self.request_frequency},
+            "/api/health": {"workspace_restore_version": 1, "chart_export_version": 3, "collection_analysis_version": 1, "account": "Layout preview (sample data)", "selected_creator": CREATOR, "request_frequency": self.request_frequency},
             "/api/creators": {"creators": [CREATOR, {"name": "Another uploader with a longer name", "uid": "987654"}]},
             "/api/accounts": {"accounts": [{"name": "Sample account", "uid": "555555", "id": "sample", "source": "qr", "active": True}]},
             "/api/plots": {"plots": [{"url": "/plots/sample.png", "name": "Sample_views_by_published_time.png", "size": len(PNG)}] if self.saved else []},

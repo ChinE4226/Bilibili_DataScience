@@ -39,9 +39,13 @@ function render(data) {
   const focused = document.activeElement?.dataset.nodeTarget;
   if (document.querySelector('main').dataset.activePanel === 'nodes') preservePageHeight();
   snapshot = data;
-  el('node-service-status').textContent = data.running ? `Node connection service is running on port ${data.port}.` : 'Connections are stopped.';
+  el('node-service-status').textContent = data.running
+    ? data.addresses?.length === 0 ? 'Thunderbolt address unavailable. Reconnect the cable; if its IP changed, stop and start node connections.'
+      : `Thunderbolt node connection service is running on port ${data.port}.`
+    : 'Connections are stopped.';
   el('node-connection-info').hidden = !data.running;
-  const addresses = data.urls.map(url => `<div><span class="muted">${url.includes('127.0.0.1') ? 'This Mac' : 'Other Macs'}</span> <code>${escapeHTML(url)}</code> <button type="button" data-copy-node-url="${escapeHTML(url)}">Copy address</button></div>`).join('');
+  const connections = data.addresses || data.urls.map(url => ({url, label: url.includes('127.0.0.1') ? 'This Mac' : 'Other Macs'}));
+  const addresses = connections.map(({url, label}) => `<div><span class="muted">${escapeHTML(label)}</span> <code>${escapeHTML(url)}</code> <button type="button" data-copy-node-url="${escapeHTML(url)}">Copy address</button></div>`).join('');
   if (el('node-service-addresses').innerHTML !== addresses) el('node-service-addresses').innerHTML = addresses;
   renderFetchHint();
   el('node-pair-code').value = data.pairing?.code || '';

@@ -61,9 +61,22 @@ function pointDetails(index) {
 }
 function chartYAxis(values) {
   if (valueMode() !== "index") return niceYAxis(values);
+  if (document.getElementById("plot-style").value === "line") return indexYAxis(values);
   const axis = niceYAxis([...values, 100]);
   const minimum = Math.min(0, ...values);
   return { ...axis, min: minimum < 0 ? Math.floor((minimum - Math.abs(minimum) * 0.08) / axis.interval) * axis.interval : 0 };
+}
+
+export function indexYAxis(values) {
+  const finite = values.filter(Number.isFinite);
+  let low = Math.min(100, ...finite), high = Math.max(100, ...finite);
+  if (low === high) { low -= 1; high += 1; }
+  const padding = (high - low) * 0.1;
+  const rawStep = (high - low + 2 * padding) / 5;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const interval = [1, 2, 5, 10].map(factor => factor * magnitude).find(step => step >= rawStep);
+  return { min: Math.floor((low - padding) / interval) * interval,
+    max: Math.ceil((high + padding) / interval) * interval, interval };
 }
 
 function renderUnusualValues() {
@@ -83,7 +96,7 @@ function renderUnusualValues() {
       : '<p class="empty-state">No unusual values flagged among the assessed videos.</p>'
     : '<p class="empty-state">No valid chart values to analyse.</p>';
   document.getElementById("plot-scale-help").textContent = valueMode() === "index"
-    ? `100 = dataset median (${indexBaseline === null ? "—" : formatIndicator(indexBaseline)}). Doubling is approximately +25. Baseline stays fixed when zooming; values are not clipped.${plotPoints.length < 20 ? " Small cohort: baseline may be unstable." : ""} Cumulative counts depend on video age.`
+    ? `100 = dataset median (${indexBaseline === null ? "—" : formatIndicator(indexBaseline)}). Doubling is approximately +25. ${document.getElementById("plot-style").value === "line" ? "Vertical axis fits the visible values and includes 100." : "Bars include zero on the vertical axis."} Baseline stays fixed when zooming; values are not clipped.${plotPoints.length < 20 ? " Small cohort: baseline may be unstable." : ""} Cumulative counts depend on video age.`
     : valueMode() === "log" ? "Displays log10(value + 1), including zero. Tooltips keep original values. Trend lines are calculated on raw values, then transformed."
       : "Original values. Switch to Log scale or Performance index to reduce the visual dominance of large spikes.";
 }
@@ -176,7 +189,8 @@ export function syncPlotControls() {
   });
   document.querySelectorAll("[data-ma-period], [data-indicator]").forEach(button => { button.disabled = !ready; });
   document.getElementById("plot-style").disabled = !ready;
-  const compatibleExport = uiState.chartExportVersion >= 2 || valueMode() === "raw" && !showAnomalies() && document.getElementById("plot-style").value === "line";
+  const indexLine = valueMode() === "index" && document.getElementById("plot-style").value === "line";
+  const compatibleExport = uiState.chartExportVersion >= (indexLine ? 3 : 2) || valueMode() === "raw" && !showAnomalies() && document.getElementById("plot-style").value === "line";
   document.getElementById("save-plot").disabled = !ready || !snapshot?.plot_id || saved || !compatibleExport;
   if (ready && snapshot?.plot_id && !compatibleExport) document.getElementById("plot-save-status").textContent = "Restart the main dashboard to enable Save PNG for this view. Download current view is available now.";
 }
@@ -403,6 +417,8 @@ export function setupPlot(onSaved) {
   document.getElementById("plot-anomalies").addEventListener("change", redrawValues);
   document.getElementById("plot-style").addEventListener("change", () => {
     chart?.setOption({ series: allSeries() });
+    updateScale();
+    renderUnusualValues();
     saved = false;
     document.getElementById("plot-save-status").textContent = "Not saved";
     syncPlotControls();

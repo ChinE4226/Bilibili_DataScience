@@ -87,7 +87,7 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
             self.send_json(
                 {
                     "ok": True,
-                    "chart_export_version": 2,
+                    "chart_export_version": 3,
                     "collection_analysis_version": 1,
                     "workspace_restore_version": 1,
                     "selected_creator": selected_creator(),

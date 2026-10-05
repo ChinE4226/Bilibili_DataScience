@@ -3,15 +3,15 @@
 <body>
   <header><h1>Bilibili Data Science fetching node</h1><span id="connection-status" role="status">Loading…</span></header>
   <main>
-    <section><h2>Connect to the main Mac</h2><p class="muted">Open Workspace → Nodes on the main Mac and start connections. Copy its LAN connection address, including the port you chose. Use Check connection before pairing. 127.0.0.1 works only if both apps run on this same Mac.</p>
+    <section><h2>Connect to the main Mac</h2><p class="muted">Connect the Macs with a Thunderbolt cable, then open Workspace → Nodes on main and start connections. Copy its numeric Thunderbolt Bridge address, including the port. Tasks and results use the cable while each Mac uses its own internet connection. Use Check connection before pairing. Node traffic does not fall back to Wi-Fi. 127.0.0.1 works only if both apps run on this same Mac.</p>
       <div class="fields">
         <label>Node name<input id="node-name" type="text" maxlength="80" autocomplete="off"></label>
-        <label>Main Mac connection URL<input id="node-url" type="url" placeholder="http://192.168.1.20:8010" autocomplete="off"></label>
+        <label>Main Mac connection URL<input id="node-url" type="url" placeholder="http://169.254.x.x:8010" autocomplete="off"></label>
         <label>One-use pairing code<input id="node-code" type="password" maxlength="100" autocomplete="off"></label>
         <label>Requests / second<input id="node-rate" type="number" value="1" min="0.1" max="4" step="0.1"></label>
       </div>
       <details><summary>Local Bilibili sign-in · optional</summary><label>Cookie header<input id="node-cookie" type="password" autocomplete="off" placeholder="Optional local Bilibili cookie"></label><p class="muted">The cookie stays in this node's memory and is never sent to the main Mac. If blank, fetching uses this Mac's environment credential or local cookie file, if available.</p></details>
-      <p class="muted">HTTP connections are for a trusted LAN or private VPN. Pairing credentials stay in memory. Restarting either app requires pairing again.</p>
+      <p class="muted">HTTP node connections bind to Thunderbolt Bridge. Pairing credentials stay in memory. Restarting either app requires pairing again. The cable does not share internet access; keep Internet Sharing off to use separate internet connections.</p>
       <p class="muted">A pairing code admits one node and expires after five minutes. A connected node can run many collections without another code.</p>
       <div class="actions"><button id="check-connection">Check connection</button><button id="connect" class="primary">Pair / Connect</button><button id="pause" disabled>Pause after current task</button><button id="resume" disabled>Resume</button><button id="disconnect" disabled>Disconnect</button></div>
       <p id="feedback" class="error" role="status" hidden></p>

@@ -212,7 +212,11 @@ def save_web_plot_png(
     for line in axis.lines:
         scale_values.extend(value for value in line.get_ydata() if value is not None and math.isfinite(value))
     plotting.configure_y_axis(axis, scale_values + ([100] if value_mode == "index" else []))
-    if value_mode == "index" and min(scale_values) < 0:
+    if value_mode == "index" and chart_style == "line":
+        low, upper, step = plotting.index_y_axis(scale_values)
+        axis.set_ylim(low, upper)
+        axis.yaxis.set_major_locator(plotting.ticker.MultipleLocator(step))
+    elif value_mode == "index" and min(scale_values) < 0:
         upper, step = plotting.nice_y_axis(scale_values + [100])
         low = min(scale_values)
         axis.set_ylim(math.floor((low - abs(low) * .08) / step) * step, upper)

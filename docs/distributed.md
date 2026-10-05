@@ -15,7 +15,7 @@ are created. Queues, pairing credentials and results are kept in process memory.
    `http://127.0.0.1:8000`.
 2. Open **Workspace → Nodes**. Choose an unused connection port (default 8010)
    and click **Start node connections**. This starts a separate listener on the
-   Mac's network interfaces; it exposes only the node protocol, not the dashboard
+   Mac's Thunderbolt Bridge address; it exposes only the node protocol, not the dashboard
    or account controls. If macOS asks whether Python may accept incoming
    connections, allow it for this service.
 3. Copy or clone the source project on each fetching Mac. Do not copy another
@@ -30,7 +30,7 @@ are created. Queues, pairing credentials and results are kept in process memory.
    the next free port and opens that address in Chrome.
 4. In that GUI, enter a node name, a main-Mac connection URL from the Nodes page,
    a fresh pairing code, and pacing from 0.1 to 4 requests/second (default 1).
-   Use the main Mac's LAN IP or resolvable hostname. `127.0.0.1` works only when
+   Use the main Mac's numeric Thunderbolt Bridge IP. `127.0.0.1` works only when
    both processes are on the same Mac. Click **Pair / Connect**.
 5. Each code is valid for five minutes and pairs one node. Use **New pairing
    code** before pairing another Mac. A node keeps its credential in memory and
@@ -38,8 +38,35 @@ are created. Queues, pairing credentials and results are kept in process memory.
 
 Before pairing, use **Check connection** in the node GUI. This checks the actual
 listener and supported features without consuming the code. The main Nodes page
-shows LAN IP addresses and a **Copy address** button for each address. A changed
+shows the bound Thunderbolt Bridge address and a **Copy address** button, including
+self-assigned `169.254.x.x` addresses. The listener does not accept Wi-Fi connections.
+If the cable is unplugged, the page reports its address unavailable; replugging
+at the same IP preserves pairings/tasks. If the bridge IP changes, stop/start the
+connection service and re-pair at its new address. A changed
 connection port must also change the URL entered on the fetching Mac.
+
+## Connect through a Thunderbolt cable
+
+Connect the two Macs using a Thunderbolt cable and Thunderbolt-capable ports.
+In macOS **System Settings → Network → Thunderbolt Bridge**, check that each
+Mac has a bridge IPv4 address and the link is active. A self-assigned address is
+usable for the direct link; the app no longer hides these addresses.
+
+Start connections on main, then copy the **Thunderbolt Bridge** address into
+the node GUI. Use its numeric IP, including the current listener port, instead
+of the Mac hostname: hostname resolution can select Wi-Fi. Run **Check connection**,
+then pair with a fresh code. If moving a paired node from Wi-Fi, wait until its
+task finishes, disconnect in the node GUI, and pair again at the bridge URL.
+
+The existing HTTP node protocol runs over the cable; Bluetooth pairing is not
+used. Main binds its listener to the active bridge IPv4 address. Node HTTP/HTTPS
+connections bind their source to the local bridge IP, so overlapping link-local
+routes cannot silently select Wi-Fi. A missing bridge fails explicitly; there is
+no Wi-Fi fallback. Tasks, heartbeats and results take the direct bridge route, while Bilibili
+requests use each Mac's normal internet route. Keep Internet Sharing disabled
+and leave the bridge's router/gateway blank if configuring addresses manually.
+Different Wi-Fi names alone do not prove separate public internet addresses.
+No internet routes or network settings are changed automatically by the app.
 
 New setup commands use `~/Library/Application Support/BilibiliDataScience/.venv`
 on each Mac. Both `start-main.command` and `start-web.command` choose the same
@@ -49,7 +76,7 @@ the environment. If that main runtime has no cached sign-in and the checkout's
 Nodes always default to their Mac-local runtime. `BILIBILI_RUNTIME_DIR` overrides
 the selection. Keep legacy `.venv`, `venv` and `.runtime` folders out of a source-only
 iCloud sync. The two small files in `docs/coordination/` are the shared chat notes;
-each chat writes only its own file. Runtime connections and results use the LAN.
+each chat writes only its own file. Runtime connections and results use the Thunderbolt cable.
 
 ## Fetch from the usual page
 
@@ -100,8 +127,8 @@ workflow. Nodes is used to connect and manage Macs, and its manual collection
 queue remains available inside the collapsed **Advanced collections** section
 for links and separate reports. It is not required for Dataset or batch tasks.
 
-The connection listener uses HTTP. Run this version on a trusted LAN or private
-VPN; it does not provide transport encryption or public-internet hosting. Node
+The connection listener uses HTTP on the direct Thunderbolt link;
+it does not provide transport encryption or public-internet hosting. Node
 tokens authenticate requests but do not encrypt them. The local control GUIs
 reject non-loopback clients and requests from another website's origin. Worker
 requests never follow HTTP redirects or use environment HTTP proxies.

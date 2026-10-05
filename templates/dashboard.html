@@ -231,7 +231,7 @@
             <button id="new-node-pairing">New pairing code</button><button id="copy-node-pairing">Copy code</button></div>
           <p id="node-pairing-expiry" class="muted"></p>
         </div>
-        <p class="muted">Start the fetching-node app on another Mac, open its local web GUI, and enter this Mac's connection address and pairing code. Choose a LAN address; 127.0.0.1 works only on the same Mac. Connections use HTTP on a trusted LAN or private VPN. The dashboard remains separate from this listener.</p>
+        <p class="muted">Node connections use Thunderbolt Bridge. Start the fetching-node app on the connected Mac, open its local web GUI, and enter the Thunderbolt address above and a fresh pairing code. Tasks and results use the cable; each Mac uses its own internet connection for fetching. There is no Wi-Fi fallback. The dashboard remains separate from the node listener.</p>
         <p id="nodes-feedback" class="error-message" role="status" hidden></p>
         <h3>Paired Macs</h3><p class="muted">Automatic fetching chooses a ready node. Pause prevents new tasks; current work finishes. Remove revokes the connection. Target checkboxes apply only to advanced collections below.</p>
         <div id="nodes-list" class="analysis-table"><p class="empty-state">No nodes paired.</p></div>

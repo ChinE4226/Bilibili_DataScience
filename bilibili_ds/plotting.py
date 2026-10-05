@@ -44,6 +44,19 @@ def configure_y_axis(axis: Any, values: list[float]) -> None:
     ))
 
 
+def index_y_axis(values: list[float]) -> tuple[float, float, float]:
+    """Fit index lines to their values, keeping the median baseline visible."""
+    finite = [100.0] + [value for value in values if math.isfinite(value)]
+    low, high = min(finite), max(finite)
+    if low == high:
+        low, high = low - 1, high + 1
+    padding = (high - low) * .1
+    raw_step = (high - low + 2 * padding) / 5
+    magnitude = 10 ** math.floor(math.log10(raw_step))
+    step = next(factor * magnitude for factor in (1, 2, 5, 10) if factor * magnitude >= raw_step)
+    return math.floor((low - padding) / step) * step, math.ceil((high + padding) / step) * step, step
+
+
 def plot_file_path(selected_creator: dict[str, str], plot_label: str) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_creator_name = re.sub(r"[^\w.-]+", "_", selected_creator.get("name", ""), flags=re.UNICODE).strip("_")[:40]
