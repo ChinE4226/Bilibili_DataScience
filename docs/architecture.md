@@ -116,6 +116,14 @@ Web-specific creator selection rules and result formats live in `web/`.
   are rejected for cohorts to avoid using an unrelated selected creator's count.
   Cohort plot snapshots name the source and support the existing explicit PNG export.
   `/api/collections` returns provenance metadata, not credentials or uploaded rows.
+  `/api/workspace-data` reconstructs the creator table and exact fetch selection,
+  plus the newest retained report of each sampling kind. It only serializes trusted
+  RAM rows; it neither fetches metrics nor writes files, and uses `Cache-Control:
+  no-store`. Report summaries share the four-cohort retention bound; serialized
+  video rows are rebuilt on demand rather than duplicated in retained reports.
+  Startup restores those tables, and reconnects to progress if collection is running.
+  Creator restoration checks account and creator context; raw credential/API fields
+  never appear in the restore response. Stopping or restarting Python clears RAM.
   `static/js/collections.js` manages per-browser source selection, separate cohort
   filters and requested/checked/eligible/valid/active count summaries. Source changes
   clear stale overview, ratio, chart and unusual-value displays. Creator refresh
@@ -200,8 +208,9 @@ It swaps stylesheets after successful loading and refreshes HTML/JS only while i
 `performAction` exposes busy state on the document so batch queues are not interrupted.
 Safe control values, active page/source and scroll survive via temporary tab storage;
 passwords, transient pairing codes and dataset rows are never stored there.
-Interface updates retain server RAM state. Browser-rendered results must be rerun
-on the retained collection. Stable main reports pending Python changes; development
+Interface updates retain server RAM state and restore collected tables/reports.
+Browser-rendered analysis and charts must be rerun on the retained collection.
+Stable main reports pending Python changes; development
 mode restarts on Python edits, clearing RAM and connections. Changes to the saved
 Creator list refresh that list without a server restart.
 Changes to the supervisor itself require restarting the launcher.

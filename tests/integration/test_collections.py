@@ -95,6 +95,13 @@ class CollectionAnalysisTests(unittest.IsolatedAsyncioTestCase):
                 return_value={'config': {'number': 393}, 'list': self.rows + [self.rows[0], {'bvid': 'invalid', 'stat': {}}]}))
             stack.enter_context(patch.object(weekly.videos, 'fetch_video_detail', new_callable=AsyncMock, return_value={'bvid': 'invalid', 'stat': {}}))
             result = await weekly.fetch_weekly_analysis({'source': '393'})
+            restored = dataset.workspace_data()['reports']['weekly']
+            self.assertEqual(restored['issue'], result['issue'])
+            self.assertEqual(restored['counts'], result['counts'])
+            self.assertEqual(restored['excluded'], result['excluded'])
+            self.assertEqual({row['bvid'] for row in restored['videos']}, {row['bvid'] for row in result['videos']})
+            restored['issue']['number'] = 999
+            self.assertEqual(dataset.workspace_data()['reports']['weekly']['issue']['number'], 393)
             response = await actions.execute_video_action({'action': 'list', 'collection_id': result['dataset']['collection_id']})
             self.assertEqual({row['bvid'] for row in response['videos']}, {'A', 'B', 'C'})
             self.assertEqual(response['dataset']['collection']['skipped_invalid'], 1)
@@ -106,6 +113,10 @@ class CollectionAnalysisTests(unittest.IsolatedAsyncioTestCase):
                 return_value={'result': self.rows}))
             detail = stack.enter_context(patch.object(sampling.videos, 'fetch_video_detail', new_callable=AsyncMock, side_effect=lambda row, credential: row))
             result = await sampling.fetch_random_sample({'keyword': 'camera', 'sample_size': 2, 'pool_size': 3, 'seed': 'fixed'})
+            restored = dataset.workspace_data()['reports']['random']
+            self.assertEqual(restored['sampling'], result['sampling'])
+            self.assertEqual(restored['summaries'], result['summaries'])
+            self.assertEqual(len(restored['videos']), 2)
             response = await actions.execute_video_action({'action': 'list', 'collection_id': result['dataset']['collection_id']})
             self.assertEqual({row['bvid'] for row in response['videos']}, {row['bvid'] for row in result['videos']})
             self.assertEqual(dataset.CURRENT, self.previous)

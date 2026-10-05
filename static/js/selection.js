@@ -21,3 +21,15 @@ export function selectionPayload() {
     maximum: document.getElementById("metric-max").value
   };
 }
+
+export function restoreSelection(selection) {
+  const fields = { kind: 'selection-kind', start: 'position-start', end: 'position-end',
+    start_time: 'published-start', end_time: 'published-end', metric: 'metric-field',
+    minimum: 'metric-min', maximum: 'metric-max' };
+  for (const [key, id] of Object.entries(fields)) {
+    if (selection[key] == null) continue;
+    const control = document.getElementById(id);
+    control.value = selection[key];
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+}

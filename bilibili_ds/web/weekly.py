@@ -76,7 +76,7 @@ async def fetch_weekly_analysis(payload):
         configured = False
         await client.close_bilibili_client()
         result['dataset'] = dataset.retain_collection(valid, kind='weekly', label=f"Weekly popular · {result['issue']['name']}",
-            started_at=started, collected_at=result['collected_at'], scope=result['issue'],
+            started_at=started, collected_at=result['collected_at'], scope=result['issue'], report=result,
             collection={'requested': len(rows), 'examined': len(rows), 'skipped_invalid': summary['counts']['invalid'],
                         'skipped_duplicates': summary['counts']['duplicates'], 'shortfall': len(rows) - len(valid)})
         set_progress(f"Weekly analysis completed. {len(valid)} valid videos; {summary['counts']['invalid']} invalid and {summary['counts']['duplicates']} duplicate entries skipped.",

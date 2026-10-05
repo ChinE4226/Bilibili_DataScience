@@ -18,7 +18,7 @@ COHORTS = OrderedDict()
 COHORT_LOCK = Lock()
 
 
-def retain_collection(items, *, kind, label, started_at, collected_at, collection, scope):
+def retain_collection(items, *, kind, label, started_at, collected_at, collection, scope, report=None):
     """Retain trusted collected rows, never accept uploaded metrics or write files."""
     if kind not in {'weekly', 'random'} or len(items) > COHORT_ROW_LIMIT:
         raise ValueError('This collection exceeds the in-memory analysis limit.')
@@ -28,7 +28,9 @@ def retain_collection(items, *, kind, label, started_at, collected_at, collectio
             'selection': label, 'uid': None, 'collection': deepcopy(collection), 'scope': deepcopy(scope)}
     from bilibili_ds.web.serializers import sort_by_published_time
     with COHORT_LOCK:
-        COHORTS[identity] = {'data': (deepcopy(sort_by_published_time(items)), label, len(items)), 'meta': meta}
+        COHORTS[identity] = {'data': (deepcopy(sort_by_published_time(items)), label, len(items)), 'meta': meta,
+                             'report': deepcopy({key: value for key, value in (report or {}).items()
+                                                 if key not in {'videos', 'dataset'}})}
         while len(COHORTS) > COHORT_LIMIT:
             COHORTS.popitem(last=False)
     return deepcopy(meta)
@@ -44,6 +46,29 @@ def creator_metadata():
     if current and current.get('key', ())[:2] == context_key({})[:2]:
         return deepcopy(current['meta'])
     return None
+
+
+def workspace_data():
+    """Rebuild page data from RAM only, without fetching or exposing raw API fields."""
+    from bilibili_ds.web.serializers import serialize_video
+    current = CURRENT  # A fetch atomically replaces this reference only on success.
+    creator = None
+    if current and current['key'][:2] == context_key({})[:2]:
+        items, label, total = current['data']
+        creator = {'dataset': {**deepcopy(current['meta']), 'reused': True},
+                   'selection_controls': json.loads(current['key'][2]),
+                   'selection': label, 'total_videos': total,
+                   'videos': [serialize_video(item) for item in items]}
+    reports = {}
+    with COHORT_LOCK:
+        for entry in reversed(list(COHORTS.values())):
+            kind = entry['meta']['source_kind']
+            if kind in reports or not entry.get('report'):
+                continue
+            reports[kind] = {**deepcopy(entry['report']), 'dataset': deepcopy(entry['meta']),
+                'videos': [{**serialize_video(item), 'creator': (item.get('owner') or {}).get('name', 'Unknown')
+                           if isinstance(item.get('owner'), dict) else 'Unknown'} for item in entry['data'][0]]}
+    return {'creator': creator, 'reports': reports}
 
 
 def context_key(payload):

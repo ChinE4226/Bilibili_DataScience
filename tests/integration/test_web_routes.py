@@ -11,7 +11,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from bilibili_ds import config, state as settings
-from bilibili_ds.web import assets, plots, routes, state
+from bilibili_ds.web import assets, plots, routes, state, dataset
 from bilibili_ds.web.server import DashboardHTTPServer
 
 
@@ -107,6 +107,14 @@ class WebRouteTests(unittest.TestCase):
             action.assert_awaited_once_with(payload)
         self.assertEqual(self.request("/api/unknown", {})[0], 404)
         self.assertEqual(self.request("/api/selected-creator", {})[0], 400)
+
+    def test_workspace_restore_is_read_only_and_not_browser_cached(self):
+        snapshot = {'creator': {'videos': [{'bvid': 'A', 'views': 100}]}, 'reports': {}}
+        with patch.object(dataset, 'workspace_data', return_value=snapshot), patch.dict(state.PROGRESS, running=True):
+            status, headers, body = self.request('/api/workspace-data')
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['Cache-Control'], 'no-store')
+        self.assertEqual(json.loads(body), {**snapshot, 'running': True})
 
     def test_random_sample_route_returns_collection_and_handles_errors(self):
         with patch.object(routes, 'fetch_random_sample', new_callable=AsyncMock, return_value={'sampling': {'sampled': 100}}) as sampling:

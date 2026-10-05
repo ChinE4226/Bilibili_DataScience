@@ -53,7 +53,7 @@ class PreviewHandler(BilibiliDataScienceHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
-        if path.startswith('/api/nodes') or path in {'/api/collections', '/api/dev-version'}:
+        if path.startswith('/api/nodes') or path in {'/api/collections', '/api/dev-version', '/api/workspace-data'}:
             super().do_GET()
             return
         if path == "/":
@@ -66,7 +66,7 @@ class PreviewHandler(BilibiliDataScienceHandler):
             self.send_bytes(PNG, "image/png")
             return
         fixtures = {
-            "/api/health": {"chart_export_version": 2, "collection_analysis_version": 1, "account": "Layout preview (sample data)", "selected_creator": CREATOR, "request_frequency": self.request_frequency},
+            "/api/health": {"workspace_restore_version": 1, "chart_export_version": 2, "collection_analysis_version": 1, "account": "Layout preview (sample data)", "selected_creator": CREATOR, "request_frequency": self.request_frequency},
             "/api/creators": {"creators": [CREATOR, {"name": "Another uploader with a longer name", "uid": "987654"}]},
             "/api/accounts": {"accounts": [{"name": "Sample account", "uid": "555555", "id": "sample", "source": "qr", "active": True}]},
             "/api/plots": {"plots": [{"url": "/plots/sample.png", "name": "Sample_views_by_published_time.png", "size": len(PNG)}] if self.saved else []},
@@ -114,8 +114,9 @@ class PreviewHandler(BilibiliDataScienceHandler):
                 return
             summary["sampling"].update({"checked": len(raw), "pages": (len(raw) + 19) // 20})
             s = summary['sampling']
+            report = {**summary, 'started_at': '2026-10-03T00:00:00Z', 'collected_at': '2026-10-03T00:00:01Z'}
             meta = dataset.retain_collection(sampled, kind='random', label=f"Random sample · {options['keyword']}",
-                started_at='2026-10-03T00:00:00Z', collected_at='2026-10-03T00:00:01Z', scope=s,
+                started_at='2026-10-03T00:00:00Z', collected_at='2026-10-03T00:00:01Z', scope=s, report=report,
                 collection={'requested': s['sample_size'], 'examined': s['candidates'], 'eligible': s['eligible'],
                             'skipped_invalid': s['invalid'], 'skipped_duplicates': s['duplicates'],
                             'collection_filtered': s['filtered_out'], 'shortfall': s['shortfall']})
@@ -132,8 +133,11 @@ class PreviewHandler(BilibiliDataScienceHandler):
                     "stat": {field["stat_key"]: (i + 1) * 100 if field["field"] == "views" else i * 2 for field in VIDEO_FIELDS}}
                    for i in range(24)]
             _, summary = summarize_weekly_items(raw)
+            report = {**summary, 'issue': {'number': issue, 'name': f'Weekly issue {issue}', 'subject': 'Sample popular videos',
+                'url': f'https://www.bilibili.com/v/popular/weekly?num={issue}'},
+                'started_at': '2026-10-03T00:00:00Z', 'collected_at': '2026-10-03T00:00:01Z'}
             meta = dataset.retain_collection(raw, kind='weekly', label=f'Weekly popular · Weekly issue {issue}',
-                started_at='2026-10-03T00:00:00Z', collected_at='2026-10-03T00:00:01Z', scope={'number': issue},
+                started_at='2026-10-03T00:00:00Z', collected_at='2026-10-03T00:00:01Z', scope={'number': issue}, report=report,
                 collection={'requested': 24, 'examined': 24, 'skipped_invalid': 0, 'skipped_duplicates': 0, 'shortfall': 0})
             self.send_json({**summary, "issue": {"number": issue, "name": f"Weekly issue {issue}", "subject": "Sample popular videos",
                 "url": f"https://www.bilibili.com/v/popular/weekly?num={issue}"},
@@ -148,7 +152,9 @@ class PreviewHandler(BilibiliDataScienceHandler):
                 return
             meta = {"count": 24, "uid": CREATOR['uid'], "source_kind": 'creator', "source_label": CREATOR['name'],
                     "selection": "Sample selection", "started_at": "2026-09-30T00:00:00Z", "collected_at": "2026-09-30T00:00:10Z", "reused": not data.get("refresh")}
-            dataset.CURRENT = {'key': dataset.context_key(data), 'meta': meta, 'data': ([], 'Sample selection', 24)}
+            raw = [{'title': row['title'], 'bvid': row['bvid'], 'pubdate': int(datetime(2026, 9, 18, 12, 30).timestamp()),
+                    'stat': {field['stat_key']: row[field['field']] for field in VIDEO_FIELDS}} for row in VIDEOS]
+            dataset.CURRENT = {'key': dataset.context_key(data), 'meta': meta, 'data': (raw, 'Sample selection', 24)}
             self.send_json({
                 "videos": VIDEOS, "points": POINTS, "y_label": "Views", "plot_id": "sample", "selected_creator": CREATOR, "selection": "All videos",
                 "mode": data.get("mode"), "numerator_total": 24001, "denominator_total": 1200034, "ratio": 0.02,

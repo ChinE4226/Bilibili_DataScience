@@ -89,6 +89,7 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "chart_export_version": 2,
                     "collection_analysis_version": 1,
+                    "workspace_restore_version": 1,
                     "selected_creator": selected_creator(),
                     "account": account_summary(),
                     "request_frequency": settings.REQUEST_FREQUENCY,
@@ -100,6 +101,9 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/collections":
             self.send_json({'collections': dataset.collection_entries(), 'creator_dataset': dataset.creator_metadata()})
+            return
+        if path == "/api/workspace-data":
+            self.send_json({**dataset.workspace_data(), 'running': bool(state.PROGRESS.get('running'))})
             return
         if path == "/api/plots":
             self.send_json({"plots": plot_entries()})

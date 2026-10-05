@@ -183,8 +183,9 @@ mixed-creator collections support the six video metrics.
 
 The latest four sampling collections (at most 2,500 rows each) stay in server RAM.
 Expired collections require an explicit recollection on Sampling; they never
-silently refetch. No collection or report files are written. Browser reload lets
-you choose these retained collections again; restarting main clears them.
+silently refetch. No collection or report files are written. Browser refresh or
+reopening a tab restores the latest weekly and random reports from these retained
+collections; restarting main clears them.
 
 ## Running Several Tasks
 
@@ -225,8 +226,8 @@ as Weekly popular. Reusing a seed repeats the draw only if the eligible pool
 and its order are unchanged. Search results and their ranking define this pool;
 it is not a uniform sample of all Bilibili. These are current accumulated metrics.
 Requests use the configured pacing and stop if the server rejects collection.
-The creator dataset is kept separately. Sample results stay in browser memory;
-no dataset or report files are written.
+The creator dataset is kept separately. Sample rows and report summaries stay in
+server RAM and return after a browser refresh; no dataset or report files are written.
 
 ## Fetching Nodes on Other Macs
 
@@ -302,6 +303,11 @@ division, and plotting reuse that collection in RAM. Changing the Creator, accou
 or fetch selection requires another explicit fetch. The status shows the collection
 interval: values are observed sequentially, not at one simultaneous instant.
 A failed refresh keeps the previous dataset; summary-page failures are reported.
+Refreshing or reopening the webpage restores its video table and fetch selection
+from server RAM without collecting again. The latest retained weekly and random
+reports also return. If collection is still running, the page reconnects to its
+progress and shows the completed dataset. No fetched rows are saved in browser
+storage or dataset files. Charts and analysis can be rerun on the restored data.
 Collection skips videos without all six valid, nonnegative whole-number metrics
 (views, likes, replies, favorites, coins, shares); zero remains valid.
 For a number range, Start is the original publication position and End − Start + 1
@@ -328,7 +334,7 @@ Pooled engagement weights videos by views; median engagement describes the typic
 per-video ratio. Neither measures unique-user conversion or current growth.
 
 Dataset reuse and analysis create no data, image, or cache files. A successful fetch
-replaces the previous dataset; stopping or source-reloading the server clears it.
+replaces the previous dataset; stopping or restarting Python clears it.
 The dashboard shares one dataset across local browser tabs.
 
 ## Development Reload

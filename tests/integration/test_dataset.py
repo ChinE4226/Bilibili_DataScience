@@ -70,3 +70,24 @@ class DatasetTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['count'], 1)
         self.assertEqual(result['dataset']['filter_counts']['excluded'], 2)
         self.fetch.assert_awaited_once()
+
+    async def test_page_restores_rows_and_exact_selection_without_fetch_or_disk(self):
+        selection = {'kind': 'position', 'start': '3', 'end': '5'}
+        await actions.execute_video_action({'action': 'list', 'refresh': True, 'selection': selection})
+        # The restore path must only read already collected data, even when a new fetch holds the lock.
+        with dataset.LOCK, patch('builtins.open', side_effect=AssertionError('No dataset files')):
+            restored = dataset.workspace_data()['creator']
+        self.assertEqual(restored['selection_controls'], selection)
+        self.assertEqual([row['bvid'] for row in restored['videos']], ['A', 'B', 'C'])
+        self.assertTrue(restored['dataset']['reused'])
+        restored['videos'][0]['views'] = 99999
+        self.assertEqual(dataset.workspace_data()['creator']['videos'][0]['views'], 100)
+        result = await actions.execute_video_action({'action': 'analysis', 'reuse_only': True,
+                                                     'selection': restored['selection_controls']})
+        self.assertEqual(result['count'], 3)
+        self.fetch.assert_awaited_once()
+        self.account.return_value = 'other'
+        self.assertIsNone(dataset.workspace_data()['creator'])
+        self.account.return_value = None
+        self.creator.return_value = {'uid': '99'}
+        self.assertIsNone(dataset.workspace_data()['creator'])

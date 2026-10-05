@@ -70,7 +70,7 @@ async def fetch_random_sample(payload):
         await client.close_bilibili_client()
         s = report['sampling']
         result['dataset'] = dataset.retain_collection(sampled, kind='random', label=f"Random sample · {options['keyword']}",
-            started_at=started, collected_at=result['collected_at'], scope=s,
+            started_at=started, collected_at=result['collected_at'], scope=s, report=result,
             collection={'requested': s['sample_size'], 'examined': s['candidates'], 'details_checked': checked,
                         'skipped_invalid': s['invalid'], 'skipped_duplicates': s['duplicates'],
                         'collection_filtered': s['filtered_out'], 'eligible': s['eligible'], 'shortfall': s['shortfall']})

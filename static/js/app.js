@@ -8,14 +8,47 @@ import { renderCreatorDetail, renderSavedCreators, filterSavedCreators, renderCr
 import { renderVideos, lookupSingleVideo } from "./views/videos.js";
 import { updatePlotControls, renderPlot, setupPlot, syncPlotControls, resetPlot } from "./views/plots.js";
 import { renderAnalysis, setupAnalysis, syncAnalysisControls, resetAnalysis } from "./views/analysis.js";
-import { refreshCollections, setupCollections, renderAnalysisContext } from './collections.js';
-import { runAction } from "./progress.js";
+import { refreshCollections, setupCollections, renderAnalysisContext, recordDataset } from './collections.js';
+import { restoreSelection } from './selection.js';
+import { runAction, startProgressPolling, stopProgressPolling } from "./progress.js";
 import { setupBatch, updateBatchSummary } from "./batch.js";
-import { fetchWeekly } from "./views/weekly.js";
-import { fetchRandomSample, setupSampling } from "./views/sampling.js";
+import { fetchWeekly, renderWeekly } from "./views/weekly.js";
+import { fetchRandomSample, setupSampling, renderRandomSample } from "./views/sampling.js";
 import { setupNodes, refreshNodes } from "./views/nodes.js";
 
-async function load() {
+async function restoreFetchedData() {
+  let data = await getJSON('/api/workspace-data');
+  const render = () => {
+    if (data.creator) {
+      restoreSelection(data.creator.selection_controls);
+      recordDataset(data.creator.dataset);
+      renderVideos('videos-result', data.creator.videos);
+      document.getElementById('dataset-source').open = false;
+    }
+    if (data.reports.weekly) renderWeekly(data.reports.weekly);
+    if (data.reports.random) renderRandomSample(data.reports.random);
+    updateBatchSummary();
+  };
+  render();
+  if (!data.running) return;
+  // The server owns a running fetch, so a tab refresh does not cancel it.
+  await performAction(document.getElementById('fetch-dataset'), async () => {
+    startProgressPolling('Reconnecting to the running collection', 'videos-progress');
+    try {
+      while (data.running) {
+        await new Promise(resolve => setTimeout(resolve, 800));
+        data.running = (await getJSON('/api/progress')).running;
+      }
+      data = await getJSON('/api/workspace-data');
+      await refreshCollections();
+      render();
+    } finally {
+      await stopProgressPolling();
+    }
+  }, { showProgress: false });
+}
+
+async function load({ restoreData = false } = {}) {
   const [health, creators, plots, accounts] = await Promise.all([
     getJSON("/api/health"),
     getJSON("/api/creators"),
@@ -66,6 +99,7 @@ async function load() {
   updateBatchSummary();
   if (health.collection_analysis_version >= 1) await refreshCollections();
   else document.getElementById('analysis-source-help').textContent = 'Restart the main dashboard to enable sampling collections in Analysis.';
+  if (restoreData && health.workspace_restore_version >= 1) await restoreFetchedData();
 }
 
 const panelSections = { creators: "explore", creator: "explore", "single-video": "explore", videos: "workspace", analysis: "workspace", division: "workspace", plot: "workspace", sampling: "workspace", tasks: "workspace", nodes: "workspace", "saved-plots": "workspace", anomalies: "workspace", settings: "settings" };
@@ -326,7 +360,7 @@ setupSelects();
 document.addEventListener('creators-source-changed', () => load().catch(error => {
   document.getElementById('status').textContent = error.message;
 }));
-load().then(() => {
+load({ restoreData: true }).then(() => {
   document.documentElement.dataset.dashboardReady = 'true';
   document.dispatchEvent(new Event('dashboard-ready'));
 }).catch((error) => {
