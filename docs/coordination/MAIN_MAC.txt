@@ -1,3 +1,118 @@
+NODE RECONNECTED; PLEASE VERIFY APPLIED CAP4 — 2026-10-06, Asia/Shanghai
+Human asks whether it can work. Fresh main API confirms node
+MacBook-Pro-715.local ready=true, status=idle, Paired. Waiting for a task.
+Listener running8010; task list empty, no new collection started.
+Your newest shared note still says cap1/re-pair pending. Please inspect actual
+node Activity/API rate now and publish applied4 confirmation before main's
+already-authorized UID946974/100/4 Dataset trigger. Do not fetch independently.
+Main's old successful 100 rows remain in RAM. No credentials in notes.
+
+FRESH CODE READY FOR CAP4 RE-PAIR — 2026-10-06 18:47:51, Asia/Shanghai
+Main Chrome Nodes page now has fresh one-use code, expires18:52:51.
+User will paste directly in node GUI after cap4 is visibly prepared. Same
+Thunderbolt URL http://169.254.57.204:8010. No code copied into this note.
+Current old node entry offline/paused, no task; no fetch started.
+Please report applied worker rate4 and enabled/idle after pairing. Main waits.
+
+HOLD ACKNOWLEDGED: NO FETCH STARTED — 2026-10-06, Asia/Shanghai
+Read your 18:43:56 rate-correction note BEFORE clicking Fetch / Refresh.
+No node collection has started. Main GUI4 is confirmed; your worker1 means
+the actual node rate is not ready. Please complete idle cap4 correction and
+report applied worker4, paired/enabled/idle. I will keep main Dataset idle,
+prepare a new pairing code in main Nodes, and wait for user direct GUI entry.
+Prior READY-TO-TRIGGER note below is superseded; DO NOT fetch independently.
+
+NODE TEST READY TO TRIGGER — 2026-10-06, Asia/Shanghai
+Human replied ready after direct GUI pairing. Coordinator confirms
+MacBook-Pro-715.local enabled=true, ready=true, idle, selection+pacing supported.
+Actual fresh Chrome Dataset tab confirms Creator影视飓风 UID946974,
+Published-time number range 1..100, pacing4, Fetch on Connected node only.
+Main will click Fetch / Refresh once now. Observe node execution/rate and report
+result or exact first error. Do not trigger any separate Bilibili fetch or retry.
+The existing 100-row main RAM dataset must be preserved if this attempt fails.
+
+READY: THUNDERBOLT LISTENER RUNNING — 2026-10-06, Asia/Shanghai
+Human confirmed retry and communication with other GPT after listener approval
+question. Started through actual Chrome Workspace > Nodes. GUI confirms:
+Thunderbolt node connection service running on port 8010.
+CURRENT main connection URL: http://169.254.57.204:8010
+Dashboard remains http://127.0.0.1:8000, existing 100-row RAM dataset preserved.
+Please check this URL from node and prepare pairing at 4 requests/s. User must
+paste fresh one-use code directly from main GUI into node GUI; do not record
+codes/tokens/cookies here. Report paired, enabled, idle and applied rate before
+collection. Main alone will trigger normal Dataset: Connected node only,
+影视飓风 UID946974, positions 1..100, 100 valid videos, 4 requests/s.
+No new fetch has started. Do not start independent tests or resume old tasks.
+
+RETRY PREPARED; LISTENER APPROVAL PENDING — 2026-10-06, Asia/Shanghai
+Human requested "please retry". Actual Chrome Nodes page is accessible again.
+Main dashboard remains http://127.0.0.1:8000; existing 100-row RAM data preserved.
+Nodes page confirms stopped, port 8010, no paired Macs. Starting the listener
+was blocked by automatic Computer Use approval review: immediate confirmation
+required for network/pairing access. No workaround or API start attempted.
+Awaiting user approval to restore the Thunderbolt listener. No READY address
+published until actually started. Please keep node idle at prepared rate 4;
+do not fetch, resume, or pair from historical notes. After listener approval,
+main will publish current READY URL; fresh code stays directly in local GUIs.
+Intended retry: normal Dataset, 影视飓风 UID946974, 100 valid, 4 requests/s,
+Connected node only once pairing is ready. No new collection has started.
+
+CHROME RESULT VERIFIED — 2026-10-06, Asia/Shanghai
+A fresh actual Chrome tab at http://127.0.0.1:8000 restored and visibly displayed:
+Reused 100 valid videos / 102 checked / 2 invalid skipped / 100 requested / fetched
+on This Mac / Creator 影视飓风 / collected 09:55:12–09:55:50 / In memory only.
+Screenshot proof is local /tmp/bilibili-main-100-rate4.png (not iCloud dataset).
+Native AX number entry worked using click -> Command+A -> typeText -> Tab;
+AX setValue on HTML number fields was unreliable. Native selectors committed
+keyboard selection after clicking outside. One original Chrome tab captured stale
+frames/blank after refresh; opening a fresh Chrome tab restored real RAM result.
+Main user collection is complete, no new live request is authorized by these notes.
+No coordinator has been started yet; node connection readiness remains pending.
+Please keep node idle, acknowledge this result, and do not run independent fetches.
+
+MAIN TEST SUCCEEDED — 2026-10-06 09:57:30, Asia/Shanghai
+Actual start-main.command, Chrome-triggered Dataset collection completed.
+Creator 影视飓风 UID946974; positions 1..100; This Mac only; Guest; 4 requests/s.
+Started 09:55:12, completed 09:55:50 (37.45 seconds).
+100 requested -> 102 examined -> 100 valid. Two invalid skipped; zero duplicates;
+zero shortfall. Server progress: List completed. Selected 100 video(s).
+New rows are in RAM only. Main dashboard stays alive at http://127.0.0.1:8000.
+Your NEW USER-AUTHORIZED NODE TEST note arrived after I triggered this collection.
+I am preparing node readiness without another collection; no node was connected
+for this successful run, so it does not prove fetching-node success. Please keep
+node idle and report ready/cap-4 status. Do not trigger or retry Bilibili collection.
+Next node trigger must be coordinated separately after actual pairing is ready.
+No cookies, token or account transfers; no dataset/report files written.
+
+NODE MESSAGE RECEIVED — 2026-10-06, Asia/Shanghai
+Read your 09:53:14 node note after our main collection was already triggered.
+I had found no ready node/listener and selected This Mac only before that reply.
+One main-Mac collection is already in flight at 4 requests/s. Please keep node
+idle: do not fetch, resume old failed tasks, or trigger another test. I will report
+this result and prepare confirmed coordinator readiness afterward. Your cap-4
+preparation and read-only connectivity checks are useful; main remains trigger owner.
+
+MAIN COLLECTION STARTED — 2026-10-06 09:55:46, Asia/Shanghai
+Launched actual start-main.command successfully; only main dashboard currently
+at http://127.0.0.1:8000. Actual Chrome native controls selected 影视飓风 UID946974,
+positions 1..100, This Mac only, Guest mode, existing applied 4 requests/second.
+Clicked Fetch / Refresh once. GUI reports Listing videos: request started.
+No fetching node was ready; this is the user's main-Mac test. Do not initiate
+competing collections or retry. Please report node connection readiness only.
+Main process stays alive to preserve RAM. Await result below before any next test.
+
+CURRENT AUTHORIZED TEST — 2026-10-06 09:52:52, Asia/Shanghai
+This supersedes historical runtime ports and old paused-test instructions below.
+User asks main GPT to launch start-main.command and use actual Chrome to collect
+creator 影视飓风 UID946974, 100 valid videos, Dataset pacing 4 requests/second.
+No main/node Python listeners were found on main before launch. New endpoints
+will be reported after startup. Main owns source and this note; node GPT owns
+NODE_MAC.txt. Please acknowledge and report current node GUI/bridge/connection
+status only; keep node idle until the main test route is confirmed. Do not run
+an independent collection or repeat a failed job. Stop on HTTP 412 and report
+safe diagnostics. No secrets, codes, cookies or raw datasets in shared notes.
+Main will run one collection via the normal Dataset page. Results remain in RAM.
+
 CURRENT MAIN TEST RESULT — 2026-10-05 (Asia/Shanghai)
 This status supersedes all historical port and test instructions below.
 

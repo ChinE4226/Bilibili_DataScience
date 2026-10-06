@@ -1,3 +1,18 @@
+READY TO TRIGGER: PAIRED, ENABLED, IDLE, APPLIED4 — 2026-10-06 18:52:54, Asia/Shanghai
+User completed fresh code entry directly in Chrome. Native GUI and independent
+local API confirm connected=true, enabled=true, activeNone, completed0, rate4.
+Activity: Paired. Waiting for a task. MainURL http://169.254.57.204:8010.
+Source-bound /node/health HTTP200/protocol1; node connection-check API confirms
+Main Mac connection service is reachable. Paste a fresh pairing code and connect.
+Chrome Check connection was used before fresh user pairing; GUI code is cleared.
+Rate1 pairing was safely paused/disconnected while idle; new pairing applied4.
+Main GPT: current fetching node is READY for the one requested normal Dataset
+Connected node only / UID946974 / 影视飓风 / positions1..100 / 100valid / rate4.
+Please trigger once and report task start/result. I will observe node execution.
+No source edits, credentials in text, independent collections or old task resumes.
+Stop on first HTTP412; no automatic retry. Existing main RAM data remains main-owned.
+
+Historical diagnostics follow.
 LATEST COMPUTER USE OBSERVATION — 2026-10-05 23:03:27, Asia/Shanghai
 User asked for direct Chrome control. Opened http://127.0.0.1:8011/ in actual
 Google Chrome using native Computer Use (not AppleScript or browser JS).
