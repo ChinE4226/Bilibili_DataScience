@@ -12,6 +12,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse, parse_qs
 
 from bilibili_ds import config, state as settings, tracking
+from bilibili_ds.errors import public_error_message
 from bilibili_ds.web import state, dataset
 from bilibili_ds.web.accounts import (
     account_detail,
@@ -89,6 +90,10 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
                             **source_versions(), 'busy': bool(state.PROGRESS.get('running')),
                             'backend_auto_reload': os.environ.get('BILIBILI_DEV_RELOAD') == '1'})
             return
+        if path == '/api/memory':
+            from bilibili_ds.web.memory import overview
+            self.send_json(overview())
+            return
         if path == "/api/health":
             self.send_json(
                 {
@@ -100,6 +105,7 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
                     "collection_snapshot_version": 1,
                     "dataset_snapshot_version": 1,
                     "mission_queue_version": 1,
+                    "memory_usage_version": 1,
                     "selected_creator": selected_creator(),
                     "account": account_summary(),
                     "request_frequency": settings.REQUEST_FREQUENCY,
@@ -147,7 +153,7 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
                             writer.writerows(cursor)
                         self.send_bytes(output.getvalue().encode('utf-8-sig'), 'text/csv; charset=utf-8')
             except Exception as exc:
-                self.send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
+                self.send_error_json(HTTPStatus.BAD_REQUEST, public_error_message(exc))
             return
         if path == "/api/creators":
             self.send_json({"creators": load_web_creators(), "selected_creator": selected_creator()})
@@ -171,13 +177,13 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
             try:
                 self.send_json(asyncio.run(account_detail()))
             except Exception as exc:
-                self.send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
+                self.send_error_json(HTTPStatus.BAD_REQUEST, public_error_message(exc))
             return
         if path == "/api/creator-detail":
             try:
                 self.send_json(asyncio.run(selected_creator_detail()))
             except Exception as exc:
-                self.send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
+                self.send_error_json(HTTPStatus.BAD_REQUEST, public_error_message(exc))
             return
         if path == "/favicon.ico":
             self.send_bytes(b"", "image/x-icon", HTTPStatus.NO_CONTENT)
@@ -247,6 +253,7 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
             "/api/creators/add",
             "/api/video-lookup",
             "/api/video-action",
+            "/api/collections/release",
             "/api/weekly-analysis",
             "/api/random-sample",
             "/api/plots/save",
@@ -273,10 +280,13 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
         try:
             data = read_json_body(self)
         except ValueError as exc:
-            self.send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
+            self.send_error_json(HTTPStatus.BAD_REQUEST, public_error_message(exc))
             return
 
         try:
+            if path == '/api/collections/release':
+                self.send_json(dataset.release_collection(data.get('collection_id'), expected_collected_at=data.get('expected_collected_at')))
+                return
             if path in {"/api/tracking/collection", '/api/snapshots/collection'}:
                 self.send_json(asyncio.run(capture_collection(data)))
                 return
@@ -366,7 +376,7 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
                 self.send_json(asyncio.run(qr_sign_in_status()))
                 return
         except Exception as exc:
-            self.send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
+            self.send_error_json(HTTPStatus.BAD_REQUEST, public_error_message(exc))
 
     def serve_static(self, raw_name: str, *, send_body: bool = True) -> None:
         path = static_file(raw_name)

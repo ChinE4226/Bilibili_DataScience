@@ -11,6 +11,7 @@ from bilibili_api import video, user
 from bilibili_ds import accounts, client, tracking, videos
 from bilibili_ds.web import dataset
 from bilibili_ds.web.serializers import extract_bvid
+from bilibili_ds.errors import request_error_message
 
 COLLECTION_LOCK = Lock()
 
@@ -25,12 +26,7 @@ class ReleaseScanError(ValueError):
 
 def error_message(exc):
     """Persist useful reasons without retaining raw responses or credentials."""
-    code, status = getattr(exc, 'code', None), getattr(exc, 'status', None)
-    if isinstance(code, int) and not isinstance(code, bool):
-        return f'Bilibili returned API code {code}; the video may be unavailable or the request rejected.'
-    if isinstance(status, int) and not isinstance(status, bool):
-        return f'Bilibili returned HTTP {status}.'
-    return f'Video collection failed ({type(exc).__name__}). Check availability, sign-in, and connection.'
+    return request_error_message(exc)
 
 
 async def fetch_info(bvid):
@@ -121,7 +117,8 @@ async def check_creator(watch_id, *, scheduled=False):
             try:
                 items = await fetch_releases(watch)
             except Exception as exc:
-                message = str(exc) if isinstance(exc, ReleaseScanError) else f'Creator release check failed ({type(exc).__name__}). Check sign-in and connection; no releases were recorded.'
+                reason = str(exc) if isinstance(exc, ReleaseScanError) else request_error_message(exc)
+                message = f'Creator release check failed. {reason} No releases were recorded.'
                 tracking.record_creator_error(watch_id, message)
                 raise ValueError(message) from None
             return tracking.record_creator_scan(watch_id, items)

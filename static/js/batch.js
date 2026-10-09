@@ -150,7 +150,7 @@ export function setupBatch({viewResult, onSettled}) {
     performAction(button,async()=>{
       if(button.dataset.missionView)await onResult(await getJSON(`/api/missions/result?id=${id}`),button.dataset.missionView);
       else if(command==='result')await showResult(id);
-      else{render(await postJSON('/api/missions/action',{id,action:command}));if(command==='remove')el('mission-result').hidden=true;await refreshCollections();}
+      else{render(await postJSON('/api/missions/action',{id,action:command}));if(command==='remove'){el('mission-result').hidden=true;el('mission-result-content').innerHTML='';}await refreshCollections();}
     }).finally(() => { onSettled?.(); return refreshBatch(); });
   });
   setInterval(()=>{if(enabled&&!document.hidden&&(busy||document.querySelector('main').dataset.activePanel==='tasks')&&!uiState.actionBusy)

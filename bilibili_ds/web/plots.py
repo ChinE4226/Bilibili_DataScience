@@ -27,17 +27,25 @@ _plot_lock = threading.Lock()
 def prepare_plot(
     selected: dict[str, str], selection_label: str, plot_label: str,
     y_label: str, points: list[dict[str, Any]],
+    *, collection_id: str | None = None,
 ) -> str | None:
     if not points:
         return None
     plot_id = uuid4().hex
-    snapshot = deepcopy({"selected": selected, "selection_label": selection_label,
+    snapshot = deepcopy({"selected": selected, "collection_id": collection_id, "selection_label": selection_label,
                          "plot_label": plot_label, "y_label": y_label, "points": points})
     with _plot_lock:
         _pending_plots[plot_id] = snapshot
         while len(_pending_plots) > PENDING_PLOT_LIMIT:
             _pending_plots.popitem(last=False)
     return plot_id
+
+
+def discard_collection_plots(identity):
+    """Drop derived RAM exports for a released collection; saved PNGs stay on disk."""
+    with _plot_lock:
+        for plot_id in [key for key, entry in _pending_plots.items() if entry.get('collection_id') == identity]:
+            del _pending_plots[plot_id]
 
 
 def normalize_ma_periods(periods: Any) -> tuple[int, ...]:
@@ -88,7 +96,7 @@ def save_prepared_plot(plot_id: Any, axis_mode: str = "time", ma_periods: Any = 
         files = snapshot.setdefault("files", {})
         name = files.get(cache_key)
         if not name or not (config.PLOTS_DIR / name).is_file():
-            name = save_web_plot_png(**{key: value for key, value in snapshot.items() if key != "files"}, axis_mode=axis_mode, ma_periods=periods, indicators=chosen,
+            name = save_web_plot_png(**{key: value for key, value in snapshot.items() if key not in {"files", "collection_id"}}, axis_mode=axis_mode, ma_periods=periods, indicators=chosen,
                                      value_mode=value_mode, show_anomalies=show_anomalies, chart_style=chart_style)
             files[cache_key] = name
         return {"name": name, "url": f"/plots/{name}"}

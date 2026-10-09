@@ -78,6 +78,19 @@ class CoordinatorTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             self.core.dispatch('/node/claim', 'wrong token', {})
 
+    def test_heartbeat_memory_is_optional_and_validated_without_exposing_secrets(self):
+        node = self.pair()
+        self.core.dispatch('/node/heartbeat', node['token'], {'ready': True, 'memory': {'rss_bytes': 123456}})
+        snapshot = self.core.snapshot()['nodes'][0]
+        self.assertEqual(snapshot['rss_bytes'], 123456)
+        self.assertIsNotNone(snapshot['memory_received_at'])
+        self.assertNotIn(node['token'], str(snapshot))
+        for value in (True, -1, '500', float('nan'), 2**63):
+            self.core.dispatch('/node/heartbeat', node['token'], {'ready': True, 'memory': {'rss_bytes': value}})
+            self.assertIsNone(self.core.snapshot()['nodes'][0]['rss_bytes'])
+        self.core.dispatch('/node/heartbeat', node['token'], {'ready': True})
+        self.assertIsNone(self.core.snapshot()['nodes'][0]['memory_received_at'])
+
     def test_hot_plug_updates_connection_addresses_without_losing_pairing(self):
         node = self.pair()
         task = self.task()

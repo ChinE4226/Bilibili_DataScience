@@ -96,6 +96,24 @@ class NodeHTTPTests(unittest.TestCase):
         self.assertEqual(report['task']['shortfall'], 1)
         self.assertEqual(report['summaries'][0]['total'], sum(i * 100 for i in range(42) if i != 3))
 
+    def test_node_process_memory_reaches_gui_coordinator_and_main_dashboard(self):
+        from bilibili_ds.web import memory
+        base = self.gui_urls[0]
+        code = self.core.new_pairing()['code']
+        self.assertEqual(self.request(base, '/api/connect', {'name': 'Memory node', 'url': self.listener, 'code': code, 'rate': 1})[0], 200)
+        self.workers[0].tick()
+        status, gui = self.request(base, '/api/status')
+        self.assertEqual(status, 200)
+        self.assertGreater(gui['memory']['rss_bytes'], 0)
+        self.assertGreater(self.core.snapshot()['nodes'][0]['rss_bytes'], 0)
+        with patch.object(memory, 'COORDINATOR', self.core):
+            status, report = self.request(self.main, '/api/memory')
+        self.assertEqual(status, 200)
+        self.assertEqual(report['nodes'][0]['name'], 'Memory node')
+        self.assertFalse(report['nodes'][0]['stale'])
+        self.assertGreater(report['nodes'][0]['rss_bytes'], 0)
+        self.assertNotIn('token', str(report))
+
     def test_remote_listener_exposes_no_admin_or_account_routes(self):
         for path in ('/', '/api/nodes', '/api/accounts', '/api/health', '/api/status'):
             self.assertEqual(self.request(self.listener, path)[0], 404)

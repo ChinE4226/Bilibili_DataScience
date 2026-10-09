@@ -37,6 +37,7 @@ export function setupSampling() {
 
 export function renderRandomSample(data) {
   registerCollection(data.dataset);
+  document.getElementById('sample-result').dataset.collectionId = data.dataset?.collection_id || '';
   const s = data.sampling;
   const scope = [`Keyword: ${s.keyword}`, `Order: ${orders[s.order]}`, `Candidate limit: ${s.pool_size}`,
     `Published: ${s.published_start || "any start"} through ${s.published_end || "any end"} (Beijing time)`,

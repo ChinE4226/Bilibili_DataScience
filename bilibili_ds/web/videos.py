@@ -10,6 +10,7 @@ from bilibili_api import user, video
 from bilibili_ds import accounts as account_service, client, selection as video_selection, videos as video_service
 from bilibili_ds.distributions import has_complete_metrics
 from bilibili_ds.fetch_context import DETAIL_BATCHER
+from bilibili_ds.errors import BilibiliRequestError, check_detail_rejection, request_error_message
 from bilibili_ds.web.creators import selected_creator
 from bilibili_ds.web.progress import set_progress
 from bilibili_ds.web.serializers import (
@@ -36,14 +37,13 @@ async def fetch_single_video(value: Any) -> dict[str, Any]:
     try:
         info = await video.Video(bvid=bvid, credential=credential).get_info()
         if not isinstance(info, dict) or not info:
-            raise ValueError("Bilibili returned no video information.")
+            raise BilibiliRequestError("Bilibili returned no video information.")
         set_progress(f"Lookup completed for {bvid}.", running=False, percent=100, count=1)
         return serialize_single_video(info)
     except Exception as exc:
-        set_progress(f"Lookup failed for {bvid}: {exc}", running=False, percent=100, count=0)
-        raise ValueError(
-            f"Could not fetch {bvid}. The video may be unavailable or private, or Bilibili may have rejected the request. {exc}"
-        ) from exc
+        message = f"Could not fetch {bvid}. {request_error_message(exc)}"
+        set_progress(message, running=False, percent=100, count=0)
+        raise BilibiliRequestError(message, code=getattr(exc, 'code', None), status=getattr(exc, 'status', None)) from exc
     finally:
         await client.close_bilibili_client()
 
@@ -135,12 +135,6 @@ async def enrich_web_video_items(
         await asyncio.sleep(client.request_delay_seconds())
 
     return enriched_items
-
-
-def check_detail_rejection(item):
-    if (item.get("detail_error_code") in {-101, -403, -412, -352, -509}
-            or item.get("detail_error_status") in {401, 403, 412, 429}):
-        raise ValueError("Bilibili rejected video detail requests. Collection stopped; try refreshing later.")
 
 
 async def fetch_valid_video_count(uploader, credential, start, requested, total, action_label, *, max_candidates=None, max_pages=None):

@@ -18,6 +18,7 @@ import { setupNodes, refreshNodes } from "./views/nodes.js";
 import { setupTracking, refreshTracking, configureTracking } from "./views/tracking.js";
 import { setupSnapshots, refreshSnapshots, configureSnapshots } from './views/snapshots.js';
 import { refreshSnapshotChoices } from './snapshot-choice.js';
+import { setupMemory, configureMemory } from './memory.js';
 
 async function restoreFetchedData() {
   let data = await getJSON('/api/workspace-data');
@@ -70,6 +71,7 @@ async function load({ restoreData = false } = {}) {
   configureTracking(health.tracking_version || 0);
   configureSnapshots(health.dataset_snapshot_version || 0);
   configureBatch(health.mission_queue_version || 0);
+  configureMemory(health.memory_usage_version || 0);
   await refreshSnapshotChoices();
   syncPlotControls();
   const selected = health.selected_creator;
@@ -249,6 +251,9 @@ function setup() {
     updateBatchSummary();
   });
   document.addEventListener('analysis-source-settled', () => { syncAnalysisControls(); syncPlotControls(); updateBatchSummary(); });
+  document.addEventListener('collections-released', () => refreshBatch().catch(error => {
+    document.getElementById('batch-status').textContent = error.message;
+  }));
   setupCollections(async () => {
     selectPanel('analysis');
     await executeWorkspaceTask(workspaceTasks().find(task => task.id === 'analysis'));
@@ -392,6 +397,7 @@ function setup() {
 }
 
 setup();
+setupMemory();
 setupSelects();
 document.addEventListener('creators-source-changed', () => load().catch(error => {
   document.getElementById('status').textContent = error.message;

@@ -48,6 +48,9 @@ class ReloadTests(unittest.TestCase):
             shutil.copytree(ROOT / "bilibili_ds", root / "bilibili_ds", ignore=shutil.ignore_patterns("__pycache__"))
             shutil.copytree(ROOT / "templates", root / "templates")
             shutil.copytree(ROOT / "static", root / "static")
+            # Exercise reload/lifecycle independently of Thunderbolt hardware.
+            with (root / 'bilibili_ds/distributed/network.py').open('a') as fixture:
+                fixture.write("\n# Offline integration fixture: use loopback for the connection service.\ndef thunderbolt_address():\n    return '127.0.0.1'\n")
             config_path = root / "bilibili_ds/config.py"
             stamp = config_path.stat()
             py_compile.compile(str(config_path), doraise=True)

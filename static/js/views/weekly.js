@@ -24,6 +24,7 @@ export function cohortTables(data) {
 
 export function renderWeekly(data) {
   registerCollection(data.dataset);
+  document.getElementById('weekly-result').dataset.collectionId = data.dataset?.collection_id || '';
   const { issue, counts } = data;
   const views = data.summaries.find(summary => summary.field === "views");
   document.getElementById("weekly-result").innerHTML = `

@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from bilibili_api import search
 
+from bilibili_ds.errors import public_error_message
 from bilibili_ds import accounts, client, videos
 from bilibili_ds.sampling import parse_sample_options, sample_candidates
 from bilibili_ds.web import dataset
@@ -81,7 +82,7 @@ async def fetch_random_sample(payload, *, snapshot_only=False):
                      running=False, percent=100, count=len(sampled))
         return (sampled, metadata) if snapshot_only else result
     except Exception as exc:
-        set_progress(f"Sampling failed: {exc}", running=False)
+        set_progress(f"Sampling failed: {public_error_message(exc)}", running=False)
         raise
     finally:
         try:

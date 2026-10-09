@@ -31,6 +31,42 @@ def retain_mission_collection(identity, items, metadata):
 def remove_mission_collection(identity):
     with COHORT_LOCK:
         MISSION_COLLECTIONS.pop(identity, None)
+    from bilibili_ds.web.plots import discard_collection_plots
+    discard_collection_plots(identity)
+
+
+def release_collection(identity, *, expected_collected_at):
+    """Discard one RAM source; snapshots and independent mission copies survive."""
+    global CURRENT
+    if not isinstance(identity, str) or not identity:
+        raise ValueError('Choose a loaded collection to release.')
+    if not isinstance(expected_collected_at, str) or not expected_collected_at:
+        raise ValueError('Refresh the loaded collection before releasing it.')
+    if not LOCK.acquire(blocking=False):
+        raise ValueError('Another video operation is running. Try again when it finishes.')
+    try:
+        if identity == 'creator':
+            metadata = creator_metadata()
+            if metadata is None:
+                raise ValueError('No dataset is loaded for this creator and account.')
+            if metadata['collected_at'] != expected_collected_at:
+                raise ValueError('The dataset changed. Refresh before releasing it.')
+            CURRENT = None
+        else:
+            with COHORT_LOCK:
+                if identity in MISSION_COLLECTIONS:
+                    raise ValueError('Remove this mission in Tasks to release its data and results.')
+                entry = COHORTS.get(identity)
+                if entry is None:
+                    raise ValueError('This collection is no longer loaded.')
+                if entry['meta']['collected_at'] != expected_collected_at:
+                    raise ValueError('The collection changed. Refresh before releasing it.')
+                del COHORTS[identity]
+        from bilibili_ds.web.plots import discard_collection_plots
+        discard_collection_plots(identity)
+        return {'released': identity}
+    finally:
+        LOCK.release()
 
 
 def describe_collection(items, *, kind, label, started_at, collected_at, collection, scope):

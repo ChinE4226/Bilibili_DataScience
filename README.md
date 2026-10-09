@@ -190,6 +190,43 @@ report files; explicit snapshots can persist a selected collection. Browser refr
 reopening a tab restores the latest weekly and random reports from these retained
 collections; restarting main clears them.
 
+Use **Release from memory** on Dataset, beside a sampling result, or in the Analysis
+collection controls to discard that loaded source and its temporary results.
+Unsaved rows cannot be recovered without fetching again. Saved SQLite snapshots
+and PNGs remain available, and other loaded collections stay in RAM. Missions own
+independent copies: remove a mission in Tasks to release its dataset and results.
+
+Fetch failures distinguish Bilibili HTTP status (such as `HTTP 412`) from API codes
+(such as `API code -412`), show the affected page/video when available, and provide
+sign-in, connection or pacing guidance. Collection stops on rejection and preserves
+the previously loaded dataset; the app does not automatically repeat the fetch.
+The installed SDK can internally retry WBI signing errors (`-403`), while HTTP 412
+and API `-412` propagate immediately. Video-detail timeouts, network failures and
+server errors stop collection instead of being counted as invalid video metrics.
+Error notices stay visible until
+dismissed or the next action begins. Tracking saves safe failure messages separately
+from observations and waits at least five minutes before retrying that target.
+Raw SDK responses and credentials are excluded from these messages.
+
+For an offline error-interface check, run
+`python scripts/preview_dashboard.py --simulate-http-error 412` and click
+**Fetch / Refresh**. This preview uses temporary data and makes no Bilibili requests.
+
+Click the compact **Memory** badge in the top navigation to inspect current server RAM
+(RSS), estimated RAM for each retained dataset, and cached mission/chart/task
+counts in a popover without moving the page content. It refreshes every 10 seconds
+while the tab is visible. The server number
+includes all fetching, tracking, processing and libraries in that process; dataset
+estimates are included in it, not extra memory. Dataset estimates sample large
+lists and exclude derived results. Python may retain freed memory for reuse, so
+releasing a dataset need not immediately reduce RSS. Browser JavaScript heap is
+shown only when supported; full browser RAM requires Activity Monitor → Memory.
+Updated fetching nodes report their process RAM through existing heartbeats.
+Offline reports are marked as last reported; older nodes show unavailable. Node
+GUI → Node activity also displays that node's process RAM. No combined software
+total is claimed because browser/native/shared memory cannot be summed reliably
+from the dashboard. SQLite history occupies disk and is not a RAM dataset.
+
 ## Dataset Snapshots
 
 After fetching a creator dataset, weekly list or random sample, click **Save data

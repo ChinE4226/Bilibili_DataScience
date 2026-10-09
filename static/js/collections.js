@@ -1,7 +1,7 @@
-import { getJSON } from './api.js';
+import { getJSON, postJSON } from './api.js';
 import { uiState } from './state.js';
 import { escapeHTML, performAction, preservePageHeight } from './ui.js';
-import { renderSnapshotChoice } from './snapshot-choice.js';
+import { renderSnapshotChoice, forgetSnapshotChoices } from './snapshot-choice.js';
 
 const el = id => document.getElementById(id);
 let entries = new Map();
@@ -39,6 +39,7 @@ export async function refreshCollections() {
     const previous = uiState.creatorDataset;
     recordDataset({ ...data.creator_dataset, ...(previous?.collected_at === data.creator_dataset.collected_at && previous.filter_counts ? {filter_counts: previous.filter_counts} : {}) });
   } else if (uiState.creatorDataset) {
+    forgetSnapshotChoices('creator');
     uiState.creatorDataset = null;
     el('dataset-status').textContent = 'Fetch the selected creator and range to load a dataset.';
     el('dataset-count-flow').hidden = true;
@@ -47,6 +48,7 @@ export async function refreshCollections() {
     el('creator-snapshot-choice').innerHTML = '';
     if (!uiState.collectionId) document.dispatchEvent(new Event('analysis-source-changed'));
   }
+  if (uiState.collectionId && !entries.has(uiState.collectionId)) chooseCollection('');
   renderChoices();
   renderAnalysisContext();
 }
@@ -75,6 +77,12 @@ export function renderAnalysisContext() {
   const cohort = Boolean(uiState.collectionId);
   let meta = uiState.creatorDataset;
   if (cohort) meta = entries.has(uiState.collectionId) ? uiState.analysisDataset || entries.get(uiState.collectionId) : null;
+  const creatorRelease = el('release-creator-dataset'), analysisRelease = el('release-analysis-collection');
+  creatorRelease.hidden = !uiState.creatorDataset;
+  creatorRelease.dataset.collectedAt = uiState.creatorDataset?.collected_at || '';
+  analysisRelease.hidden = !meta || Boolean(meta.mission_id);
+  analysisRelease.dataset.releaseCollection = uiState.collectionId || 'creator';
+  analysisRelease.dataset.collectedAt = meta?.collected_at || '';
   el('analysis-cohort-filters').hidden = !cohort;
   el('analysis-creator-filters').hidden = cohort;
   el('analysis-source-help').textContent = cohort
@@ -138,6 +146,25 @@ export function chooseCollection(identity) {
 export function setupCollections(onUse) {
   el('analysis-collection').addEventListener('change', () => chooseCollection(el('analysis-collection').value));
   document.addEventListener('click', event => {
+    const release = event.target.closest('button[data-release-collection]');
+    if (release && !release.disabled) {
+      performAction(release, async () => {
+        const identity = release.dataset.releaseCollection;
+        await postJSON('/api/collections/release', {collection_id: identity, expected_collected_at: release.dataset.collectedAt});
+        preservePageHeight();
+        forgetSnapshotChoices(identity);
+        for (const id of ['weekly-result', 'sample-result']) {
+          const result = el(id);
+          if (result.dataset.collectionId === identity) {
+            result.innerHTML = '<p class="empty-state">Collection released from memory. Fetch again to continue.</p>';
+            delete result.dataset.collectionId;
+          }
+        }
+        await refreshCollections();
+        document.dispatchEvent(new Event('collections-released'));
+      }).finally(() => document.dispatchEvent(new Event('analysis-source-settled')));
+      return;
+    }
     const button = event.target.closest('button[data-use-collection]');
     if (!button) return;
     performAction(button, async () => {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from bilibili_ds.errors import public_error_message
 from bilibili_ds.distributions import analyse_dataset, metric
 from bilibili_ds.web import dataset
 from bilibili_ds.web.creators import selected_creator
@@ -187,7 +188,8 @@ async def _execute_video_action(payload: dict[str, Any]) -> dict[str, Any]:
             selected = None if cohort else ({'uid': metadata['uid'], 'name': metadata.get('creator_name') or metadata['source_label']}
                                            if metadata.get('collection_id') else selected_creator())
             plot_source = {'name': metadata['source_label'], 'uid': metadata['source_kind']} if cohort else selected
-            plot_id = prepare_plot(plot_source, selection_label, plot_label, y_label, points) if plot_source else None
+            plot_id = prepare_plot(plot_source, selection_label, plot_label, y_label, points,
+                                   collection_id=metadata.get('collection_id') or 'creator') if plot_source else None
             set_progress(f"Plot completed. Selected {len(items)} video(s), plotted {len(points)} point(s).", running=False, percent=100, count=len(items))
             return {
                 "action": action,
@@ -203,5 +205,5 @@ async def _execute_video_action(payload: dict[str, Any]) -> dict[str, Any]:
 
         raise ValueError("Invalid action.")
     except Exception as exc:
-        set_progress(f"Failed: {exc}", running=False)
+        set_progress(f"Failed: {public_error_message(exc)}", running=False)
         raise

@@ -27,17 +27,27 @@ export function clearFeedback(feedback) {
   if (state) clearTimeout(state.timer);
   feedbackStates.delete(feedback);
   feedback.hidden = true;
+  feedback.setAttribute('role', 'status');
 }
 
-export function showFeedback(feedback, message, { error = false, duration = error ? 8000 : 4000 } = {}) {
+export function showFeedback(feedback, message, { error = false, duration = error ? 0 : 4000 } = {}) {
   clearFeedback(feedback);
   feedback.textContent = message;
   feedback.classList.toggle("error-message", error);
   feedback.hidden = false;
+  feedback.setAttribute('role', error ? 'alert' : 'status');
+  if (error) {
+    const dismiss = document.createElement('button');
+    dismiss.type = 'button';
+    dismiss.className = 'feedback-dismiss';
+    dismiss.textContent = 'Dismiss';
+    dismiss.addEventListener('click', () => clearFeedback(feedback));
+    feedback.append(dismiss);
+  }
   const state = { duration, timer: null };
   const schedule = () => {
     clearTimeout(state.timer);
-    state.timer = setTimeout(() => { if (feedbackStates.get(feedback) === state) clearFeedback(feedback); }, duration);
+    if (duration > 0) state.timer = setTimeout(() => { if (feedbackStates.get(feedback) === state) clearFeedback(feedback); }, duration);
   };
   if (!feedback.dataset.dismissBound) {
     feedback.dataset.dismissBound = "true";
@@ -77,6 +87,7 @@ export async function performAction(button, task, { showProgress = true, disable
     }
     uiState.actionBusy = false;
     delete document.documentElement.dataset.actionBusy;
+    document.dispatchEvent(new Event('action-settled'));
   }
 }
 

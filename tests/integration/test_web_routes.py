@@ -74,6 +74,28 @@ class WebRouteTests(unittest.TestCase):
                 self.assertEqual(head_headers["Content-Length"], str(len(body)))
                 self.assertEqual(head_body, b"")
 
+    def test_release_collection_route_clears_only_the_loaded_source(self):
+        from tests.integration.test_tracking import info, TIME
+        current = {'key': ('7', None, '{}'), 'data': ([info()], 'First video', 1),
+                   'meta': {'count': 1, 'collected_at': TIME, 'uid': '7'}}
+        with patch.object(dataset, 'CURRENT', current), patch.object(dataset, 'selected_creator', return_value={'uid': '7'}), patch.object(dataset.accounts, 'active_account_id', return_value=None):
+            self.assertEqual(self.request('/api/collections/release', {'collection_id': 'creator', 'expected_collected_at': 'old'})[0], 400)
+            self.assertIs(dataset.CURRENT, current)
+            status, _, body = self.request('/api/collections/release', {'collection_id': 'creator', 'expected_collected_at': TIME})
+            self.assertEqual((status, json.loads(body)), (200, {'released': 'creator'}))
+            self.assertIsNone(dataset.CURRENT)
+            self.assertEqual(self.request('/api/collections/release', {})[0], 400)
+
+    def test_memory_route_reports_process_usage_without_returning_dataset_rows(self):
+        with patch.object(dataset, 'CURRENT', None):
+            status, _, body = self.request('/api/memory')
+        report = json.loads(body)
+        self.assertEqual(status, 200)
+        self.assertGreater(report['server']['pid'], 0)
+        self.assertGreater(report['server']['rss_bytes'], 0)
+        self.assertIn('dataset_estimated_bytes', report)
+        self.assertNotIn('data', report)
+
     def test_mission_routes_run_and_retain_independent_results(self):
         from collections import OrderedDict
         from tests.integration.test_tracking import info
@@ -121,6 +143,19 @@ class WebRouteTests(unittest.TestCase):
         self.assertEqual(json.loads(body)["creator"]["uid"], "42")
         self.assertEqual(json.loads(self.request("/api/creators")[2])["selected_creator"]["uid"], "42")
         self.assertNotIn("selected_uid", json.loads(config.CREATORS_FILE.read_text()))
+
+    def test_upstream_412_response_is_safe_and_does_not_replace_loaded_data(self):
+        from bilibili_api.exceptions import NetworkException
+        original = {'data': 'already loaded dataset'}
+        with patch.object(dataset, 'CURRENT', original), patch.object(routes, 'execute_video_action', new_callable=AsyncMock, side_effect=NetworkException(412, '<html>private-cookie</html>')) as action:
+            status, _, body = self.request('/api/video-action', {'action': 'list', 'refresh': True})
+            self.assertIs(dataset.CURRENT, original)
+        message = json.loads(body)['error']
+        self.assertEqual(status, 400)
+        self.assertIn('HTTP 412', message)
+        self.assertIn('lower collection requests per second', message)
+        self.assertNotIn('private-cookie', message)
+        action.assert_awaited_once()
 
     def test_lookup_and_actions_use_expected_route_contracts(self):
         with patch.object(routes, "fetch_single_video", new_callable=AsyncMock, return_value={"bvid": "BV1xx411c7mD"}) as lookup:
@@ -253,7 +288,7 @@ class WebRouteTests(unittest.TestCase):
 
     def test_plots_only_persist_after_explicit_save(self):
         points = [{"title": "Example", "label": "2026-09-01 12:00:00", "value": 12345}]
-        plot_id = plots.prepare_plot({"name": "Example", "uid": "42"}, "all", "Views", "Views", points)
+        plot_id = plots.prepare_plot({"name": "Example", "uid": "42"}, "all", "Views", "Views", points, collection_id='creator')
         self.assertFalse(config.PLOTS_DIR.exists())
         self.assertEqual(json.loads(self.request("/api/plots")[2]), {"plots": []})
         status, _, body = self.request("/api/plots/save", {"plot_id": plot_id})

@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 from bilibili_api import Credential, video
-from bilibili_api.exceptions import WbiRetryTimesExceedException
+from bilibili_ds.errors import BilibiliRequestError, integer_code, request_error_message
 
 
 async def fetch_creator_video_page(uploader, *, pn, ps, order, collected=None,
@@ -14,26 +14,9 @@ async def fetch_creator_video_page(uploader, *, pn, ps, order, collected=None,
         return await uploader.get_videos(pn=pn, ps=ps, order=order)
     except Exception as exc:
         code, status = getattr(exc, 'code', None), getattr(exc, 'status', None)
-        if not isinstance(code, int) or isinstance(code, bool):
-            code = None
-        if not isinstance(status, int) or isinstance(status, bool):
-            status = None
-        if isinstance(exc, WbiRetryTimesExceedException):
-            reason = 'The Bilibili SDK exhausted its WBI request retries.'
-        elif code == -101 or status == 401:
-            reason = f'Bilibili requires sign-in ({"API code " + str(code) if code is not None else "HTTP 401"}). Sign in on the fetching Mac.'
-        elif code is not None:
-            reason = f'Bilibili {"rejected the request" if code in {-403, -412, -352, -509} else "returned an error"} (API code {code}).'
-        elif status is not None:
-            reason = f'Bilibili returned HTTP {status}.'
-        elif isinstance(exc, (TimeoutError, httpx.TimeoutException)):
-            reason = 'The creator-list request timed out. Check the fetching Mac\'s internet connection.'
-        elif isinstance(exc, httpx.TransportError):
-            reason = f'Network request failed ({type(exc).__name__}). Check the fetching Mac\'s internet connection.'
-        else:
-            reason = f'Creator-list request failed ({type(exc).__name__}).'
+        reason = request_error_message(exc)
         count = '' if collected is None else f' {collected}{"/" + str(requested) if requested is not None else ""} {item_kind} collected before failure.'
-        raise ValueError(f'Video collection stopped on page {pn}. {reason}{count}') from exc
+        raise BilibiliRequestError(f'Video collection stopped on page {pn}. {reason}{count}', code=code, status=status) from exc
 
 
 def video_total_from_response(videos: dict[str, Any]) -> int:
@@ -58,9 +41,13 @@ async def fetch_video_detail(item: dict[str, Any], credential: Credential | None
         info = await video.Video(bvid=bvid, credential=credential).get_info()
     except Exception as exc:
         enriched["stat"] = {}
-        enriched["detail_error"] = str(exc)
-        enriched["detail_error_code"] = getattr(exc, "code", None)
-        enriched["detail_error_status"] = getattr(exc, "status", None)
+        enriched["detail_error"] = request_error_message(exc)
+        enriched["detail_error_code"] = integer_code(getattr(exc, "code", None))
+        enriched["detail_error_status"] = integer_code(getattr(exc, "status", None))
+        if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
+            enriched['detail_error_kind'] = 'timeout'
+        elif isinstance(exc, httpx.TransportError):
+            enriched['detail_error_kind'] = 'network'
         return enriched
 
     stat = info.get("stat") if isinstance(info.get("stat"), dict) else {}

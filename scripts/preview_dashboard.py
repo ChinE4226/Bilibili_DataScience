@@ -74,10 +74,12 @@ PNG = buffer.getvalue()
 class PreviewHandler(BilibiliDataScienceHandler):
     request_frequency = 4.0
     saved = False
+    simulated_http_error = None
+    simulated_failure = None
 
     def do_GET(self):
         path = urlparse(self.path).path
-        if path.startswith(('/api/nodes', '/api/missions')) or path in {'/api/collections', '/api/dev-version', '/api/workspace-data'}:
+        if path.startswith(('/api/nodes', '/api/missions')) or path in {'/api/collections', '/api/dev-version', '/api/workspace-data', '/api/memory'}:
             super().do_GET()
             return
         if path == "/":
@@ -90,11 +92,11 @@ class PreviewHandler(BilibiliDataScienceHandler):
             self.send_bytes(PNG, "image/png")
             return
         fixtures = {
-            "/api/health": {"mission_queue_version": 1, "workspace_restore_version": 1, "chart_export_version": 3, "collection_analysis_version": 1, "account": "Layout preview (sample data)", "selected_creator": CREATOR, "request_frequency": self.request_frequency},
+            "/api/health": {"memory_usage_version": 1, "mission_queue_version": 1, "workspace_restore_version": 1, "chart_export_version": 3, "collection_analysis_version": 1, "account": "Layout preview (sample data)", "selected_creator": CREATOR, "request_frequency": self.request_frequency},
             "/api/creators": {"creators": [CREATOR, {"name": "Another uploader with a longer name", "uid": "987654"}]},
             "/api/accounts": {"accounts": [{"name": "Sample account", "uid": "555555", "id": "sample", "source": "qr", "active": True}]},
             "/api/plots": {"plots": [{"url": "/plots/sample.png", "name": "Sample_views_by_published_time.png", "size": len(PNG)}] if self.saved else []},
-            "/api/progress": {"message": "Completed.", "running": False, "count": 24},
+            "/api/progress": {"message": self.simulated_failure or "Completed.", "running": False, "count": 0 if self.simulated_failure else 24},
             "/api/account-detail": {"name": "Sample account", "mid": 555555, "level": 5, "coins": 34, "following": 120, "follower": 17, "sign": "Sample account signature"},
             "/api/creator-detail": {"selected": CREATOR, "profile": {"name": CREATOR["name"], "mid": 123456, "sign": "Long profile text " * 15, "upstat": {"archive": {"view": 123456789}, "likes": 654321}}, "relation": {"follower": 100000, "following": 45}, "video_total": 500},
         }
@@ -105,10 +107,15 @@ class PreviewHandler(BilibiliDataScienceHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
-        if path.startswith(('/api/nodes', '/api/missions')):
+        if path.startswith(('/api/nodes', '/api/missions')) or path == '/api/collections/release':
             super().do_POST()
             return
         data = read_json_body(self)
+        if path == '/api/video-action' and self.simulated_http_error is not None:
+            from bilibili_ds.errors import request_reason
+            type(self).simulated_failure = f'Video collection stopped. {request_reason(status=self.simulated_http_error)}'
+            self.send_error_json(400, self.simulated_failure)
+            return
         if path == "/api/request-frequency":
             from bilibili_ds.distributed.protocol import frequency
             try:
@@ -198,7 +205,10 @@ class PreviewHandler(BilibiliDataScienceHandler):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8012)
+    parser.add_argument('--simulate-http-error', type=int, choices=(401, 403, 412, 429, 500),
+                        help='Simulate a Bilibili rejection for dataset actions without making network requests.')
     args = parser.parse_args()
+    PreviewHandler.simulated_http_error = args.simulate_http_error
     server = DashboardHTTPServer(("127.0.0.1", args.port), PreviewHandler)
     print(f"Sample layout preview: http://127.0.0.1:{server.server_port}", flush=True)
     try:

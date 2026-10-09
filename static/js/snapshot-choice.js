@@ -20,8 +20,18 @@ export function renderSnapshotChoice(meta) {
       <p class="muted">${batch ? '' : 'A snapshot includes the whole fetched collection and its original collection time, before local analysis filters.'}</p></div>
     <div class="actions">${batch
       ? '<button type="button" data-panel="snapshots">Browse saved snapshots</button>'
-      : `<button type="button" data-save-snapshot ${enabled ? '' : 'disabled'}>Save data as a snapshot</button>`}</div>
+      : `<button type="button" data-save-snapshot ${enabled ? '' : 'disabled'}>Save data as a snapshot</button>`}
+      ${meta.collection_id && !meta.mission_id ? `<button type="button" data-release-collection="${escapeHTML(meta.collection_id)}" data-collected-at="${escapeHTML(meta.collected_at)}" title="Discard unsaved rows and derived results. Saved snapshots remain available.">Release from memory</button>` : ''}</div>
   </div>`;
+}
+
+export function forgetSnapshotChoices(identity) {
+  for (const [key, meta] of collections) {
+    if ((meta.collection_id || 'creator') === identity) {
+      collections.delete(key);
+      saved.delete(key);
+    }
+  }
 }
 
 function updateChoices() {

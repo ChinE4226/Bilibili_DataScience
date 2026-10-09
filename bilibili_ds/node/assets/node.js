@@ -25,6 +25,9 @@ function render(state) {
   el('activity-rate').textContent = `${state.rate} request(s)/s`;
   el('activity-progress').value = state.progress;
   el('activity-message').textContent = state.message;
+  el('node-memory').textContent = state.memory?.rss_bytes == null
+    ? 'Node process RAM: unavailable.'
+    : `Whole node process RAM (RSS): ${(state.memory.rss_bytes / 1048576).toFixed(1)} MiB · PID ${state.memory.pid}. Browser RAM is separate.`;
   const paired = Boolean(state.node_id);
   ['node-name','node-url','node-code','node-rate','node-cookie'].forEach(id => { el(id).disabled = busy || paired; });
   el('connect').disabled = busy || paired || Boolean(state.active);

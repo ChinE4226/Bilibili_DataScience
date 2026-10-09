@@ -34,6 +34,10 @@ class MacLauncherIntegrationTests(unittest.TestCase):
         shutil.copy2(ROOT / "scripts/mac_launcher.sh", root / "scripts/mac_launcher.sh")
         for name in ("bilibili_ds", "static", "templates"):
             shutil.copytree(ROOT / name, root / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        # These process-lifecycle tests run offline, without a physical cable.
+        network = root / 'bilibili_ds/distributed/network.py'
+        with network.open('a') as fixture:
+            fixture.write("\n# Offline integration fixture: use loopback for the connection service.\ndef thunderbolt_address():\n    return '127.0.0.1'\n")
         (root / "objects").mkdir()
         (root / "objects/creators.json").write_text('{"creators": []}')
         (root / ".venv/bin").mkdir(parents=True)

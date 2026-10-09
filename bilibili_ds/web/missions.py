@@ -8,6 +8,7 @@ from threading import Lock, Thread
 from uuid import uuid4
 from urllib.parse import parse_qs
 
+from bilibili_ds.errors import public_error_message
 from bilibili_ds import accounts, tracking
 from bilibili_ds.distributed.protocol import workspace_selection, local_operator, json_request
 from bilibili_ds.fetch_context import PROGRESS_CALLBACK
@@ -140,7 +141,8 @@ def detail(identity):
     chart = result['results'].get('plot')
     if chart:
         source = chart.get('selected_creator') or {'name': chart['dataset']['source_label'], 'uid': chart['dataset']['source_kind']}
-        chart['plot_id'] = plots.prepare_plot(source, chart['selection'], chart['plot_label'], chart['y_label'], chart['points'])
+        chart['plot_id'] = plots.prepare_plot(source, chart['selection'], chart['plot_label'], chart['y_label'], chart['points'],
+                                             collection_id=result['collection_id'])
     return result
 
 
@@ -203,7 +205,7 @@ def _run(identities):
                 try:
                     result = asyncio.run(execute_step(identity, step))
                 except Exception as exc:
-                    _update(identity, state='failed', message=str(exc), current_step=step)
+                    _update(identity, state='failed', message=public_error_message(exc), current_step=step)
                     return
                 with LOCK:
                     row['results'][step] = result
@@ -262,5 +264,5 @@ def mission_route(handler, parsed, method):
             return True
         handler.send_json(result)
     except (ValueError, OSError) as exc:
-        handler.send_error_json(getattr(exc, 'status', 400), str(exc))
+        handler.send_error_json(getattr(exc, 'status', 400), public_error_message(exc))
     return True

@@ -37,6 +37,12 @@ let anomalyScores = [];
 export function resetPlot() {
   snapshot = null;
   plotPoints = [];
+  movingAverages.clear();
+  extraOverlays.clear();
+  relativeValues = [];
+  displayedValues = [];
+  anomalyScores = [];
+  indexBaseline = null;
   chart?.clear();
   relativeChart?.clear();
   document.getElementById('plot-workspace').hidden = true;

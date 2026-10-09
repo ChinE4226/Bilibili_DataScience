@@ -7,6 +7,7 @@ from bilibili_api import user
 from bilibili_ds import accounts, client, videos
 from bilibili_ds.distributed.protocol import wire_video, frequency, integer
 from bilibili_ds.distributions import has_complete_metrics
+from bilibili_ds.errors import check_detail_rejection
 
 
 async def fetch_unit(unit, cookie, rate, canceled, progress):
@@ -47,9 +48,7 @@ async def fetch_unit(unit, cookie, rate, canceled, progress):
             return
         seen.add(identity)
         item = await videos.fetch_video_detail(summary, credential)
-        if (item.get('detail_error_code') in {-101, -403, -412, -352, -509}
-                or item.get('detail_error_status') in {401, 403, 412, 429}):
-            raise ValueError('Bilibili rejected collection. This node is paused; try again later.')
+        check_detail_rejection(item)
         rows.append(wire_video(item))
         valid = sum(has_complete_metrics(row) for row in rows)
         progress(min(95, int(95 * valid / max(total, 1))), f'{len(rows)} videos checked · {valid} valid')

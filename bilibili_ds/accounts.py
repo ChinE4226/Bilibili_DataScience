@@ -8,6 +8,7 @@ from typing import Any
 
 from bilibili_api import Credential, user
 
+from bilibili_ds.errors import public_error_message
 from bilibili_ds import config
 from bilibili_ds.client import (
     close_bilibili_client,
@@ -280,6 +281,6 @@ async def load_account_detail(
             return False, None, None
         return True, await user.get_self_info(credential), None
     except Exception as exc:
-        return None, None, str(exc)
+        return None, None, public_error_message(exc)
     finally:
         await close_bilibili_client()

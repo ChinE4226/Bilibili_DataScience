@@ -13,9 +13,11 @@ from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, HTTPHandler, HTTPSHandler, ProxyHandler, Request, build_opener
 from urllib.parse import urlparse
 
+from bilibili_ds.errors import public_error_message
 from bilibili_ds.distributed.fetch import fetch_unit
 from bilibili_ds.distributed.protocol import VERSION, CAPABILITIES, MAX_BODY, ProtocolError, coordinator_url, frequency
 from bilibili_ds.distributed.network import thunderbolt_address
+from bilibili_ds.memory import process_memory
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -174,7 +176,7 @@ class Worker:
                     'coordinator_enabled': self.coordinator_enabled,
                     'message': self.message, 'progress': self.progress, 'completed': self.completed,
                     'active': {'label': self.active['label'], 'id': self.active['id']} if self.active else None,
-                    'has_local_credential': bool(self.cookie)}
+                    'has_local_credential': bool(self.cookie), 'memory': process_memory()}
 
     def update_progress(self, value, message):
         with self.lock:
@@ -189,6 +191,7 @@ class Worker:
             heartbeat = {'ready': self.enabled, 'message': self.message, 'progress': self.progress}
             if active:
                 heartbeat.update(unit_id=active['id'], lease=active['lease'])
+        heartbeat['memory'] = process_memory()
         try:
             heartbeat_result = self.transport(base, '/node/heartbeat', heartbeat, token)
             with self.lock:
@@ -204,7 +207,7 @@ class Worker:
                     try:
                         self.pending = ('/node/complete', self.future.result())
                     except Exception as exc:
-                        self.pending = ('/node/fail', {'error': str(exc)})
+                        self.pending = ('/node/fail', {'error': public_error_message(exc)})
                         self.enabled = False
                 if self.pending:
                     path, payload = self.pending
@@ -237,7 +240,7 @@ class Worker:
                         self.future = self.executor.submit(lambda: asyncio.run(self.fetcher(unit, cookie, rate, canceled, self.update_progress)))
         except ProtocolError as exc:
             with self.lock:
-                self.message = str(exc)
+                self.message = public_error_message(exc)
                 if exc.status == 409 and self.active:
                     self.cancel_event.set()
                     # Drain the canceled fetch before claiming another unit.

@@ -120,6 +120,11 @@ class Coordinator:
             node['last_seen'] = self.clock()
             if path == '/node/heartbeat':
                 node.update(ready=data.get('ready') is True, message=str(data.get('message') or '')[:300])
+                memory = data.get('memory')
+                rss = memory.get('rss_bytes') if isinstance(memory, dict) else None
+                valid_rss = type(rss) is int and 0 <= rss <= 2**63 - 1
+                node.update(rss_bytes=rss if valid_rss else None,
+                            memory_received_at=self.clock() if valid_rss else None)
                 if data.get('unit_id'):
                     _, unit = self._lease(node, data, allow_done=True)
                     if unit['state'] == 'running':
@@ -379,7 +384,9 @@ class Coordinator:
                 status = ('offline' if not self.server or now - node['last_seen'] > 20 else 'busy' if node['unit_id']
                           else 'paused' if not node['enabled'] or not node['ready'] else 'idle')
                 nodes.append({key: deepcopy(node[key]) for key in ('id', 'name', 'enabled', 'ready', 'capabilities', 'unit_id', 'message', 'progress')} |
-                             {'status': status, 'last_seen': timestamp(node['last_seen'])})
+                             {'status': status, 'last_seen': timestamp(node['last_seen']),
+                              'rss_bytes': node.get('rss_bytes'),
+                              'memory_received_at': timestamp(node['memory_received_at']) if node.get('memory_received_at') is not None else None})
             self.urls = [entry['url'] for entry in addresses] if self.server is server else []
             return {'protocol': VERSION, 'running': bool(self.server), 'port': port, 'urls': self.urls if port else [],
                 'addresses': addresses if port and self.server is server else [],

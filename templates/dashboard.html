@@ -15,11 +15,32 @@
     <h1>Bilibili Data Science</h1>
     <div id="status" class="muted">Loading...</div>
   </header>
+  <div class="global-toolbar">
   <nav class="main-nav" aria-label="Main navigation">
     <button data-section="explore">Explore</button>
     <button data-section="workspace" aria-current="page">Workspace</button>
     <button data-section="settings">Settings</button>
   </nav>
+      <details id="memory-panel" class="memory-panel">
+        <summary title="Software memory usage"><span class="memory-label">Memory</span> <span id="memory-summary" class="muted">Checking…</span></summary>
+        <div class="memory-content">
+          <div class="page-heading"><h3>Software memory</h3><button id="memory-refresh" type="button" disabled>Refresh memory usage</button></div>
+          <dl class="memory-metrics">
+            <div><dt>Whole server process · RSS</dt><dd id="memory-server">—</dd></div>
+            <div><dt>Estimated raw datasets</dt><dd id="memory-datasets">—</dd></div>
+            <div><dt>Retained collections</dt><dd id="memory-collections">—</dd></div>
+            <div><dt>Browser-reported JS heap</dt><dd id="memory-browser">—</dd></div>
+          </dl>
+          <p id="memory-time" class="muted"></p>
+          <p class="muted">Server RAM includes fetching, tracking, analysis, libraries and caches. Dataset estimates are part of that total; they sample up to 100 rows per list and exclude derived results. Releasing rows makes memory reusable, so the process total may stay high.</p>
+          <p class="muted">Browser heap reporting depends on your browser and can include other tabs. Full browser RAM is separate: use Activity Monitor → Memory to inspect its processes. Fetching nodes report their own process RAM below; these measurements are shown separately.</p>
+          <h4>Loaded datasets</h4><div id="memory-retained" class="analysis-table"></div>
+          <p id="memory-caches" class="muted"></p>
+          <h4>Fetching nodes</h4><div id="memory-nodes" class="analysis-table"></div>
+          <p id="memory-error" class="error-message" role="status" hidden></p>
+        </div>
+      </details>
+  </div>
   </div>
   <main>
     <div class="work">
@@ -65,6 +86,7 @@
         <details id="analysis-provenance" hidden><summary>Collection scope</summary><p id="analysis-scope-status" class="muted"></p></details>
         <div id="analysis-cohort-filters" class="row" hidden><label>Minimum views<input id="analysis-min-views" type="number" min="0" step="1" placeholder="No minimum"></label><label>Maximum views<input id="analysis-max-views" type="number" min="0" step="1" placeholder="No maximum"></label><span class="muted">Inclusive · run a tool to apply</span></div></div>
         <button id="analysis-creator-filters" type="button" data-config-panel="videos">Data &amp; filters</button>
+        <button id="release-analysis-collection" type="button" data-release-collection hidden title="Discard unsaved rows and derived results. Saved snapshots remain available.">Release from memory</button>
       </aside>
       <section class="selection-card" aria-label="Working dataset">
         <div id="dataset-creator-slot">
@@ -161,7 +183,7 @@
       </section>
       <section id="panel-videos" class="panel active">
         <div class="page-heading"><div><h2>Dataset rows</h2><p class="muted">Inspect the videos included in your current selection.</p></div></div>
-        <div class="actions"><button id="list-videos" class="primary">Apply Filters / Show Rows</button><button data-panel="snapshots">Browse snapshots</button></div>
+        <div class="actions"><button id="list-videos" class="primary">Apply Filters / Show Rows</button><button data-panel="snapshots">Browse snapshots</button><button id="release-creator-dataset" type="button" data-release-collection="creator" hidden title="Discard unsaved rows and derived results. Saved snapshots remain available.">Release from memory</button></div>
         <div id="creator-snapshot-choice"></div>
         <div id="videos-progress" class="progress panel-progress" role="status" hidden></div>
         <div id="videos-result" class="result"></div>

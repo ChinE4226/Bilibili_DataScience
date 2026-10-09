@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlparse
 
 from bilibili_api import hot
 
+from bilibili_ds.errors import public_error_message
 from bilibili_ds import accounts, client, videos
 from bilibili_ds.distributions import has_complete_metrics
 from bilibili_ds.weekly import summarize_weekly_items
@@ -86,7 +87,7 @@ async def fetch_weekly_analysis(payload, *, snapshot_only=False):
                      running=False, percent=100, count=len(valid))
         return (valid, metadata) if snapshot_only else result
     except Exception as exc:
-        set_progress(f"Weekly analysis failed: {exc}", running=False)
+        set_progress(f"Weekly analysis failed: {public_error_message(exc)}", running=False)
         raise
     finally:
         if configured:

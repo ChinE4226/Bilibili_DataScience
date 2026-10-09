@@ -50,8 +50,10 @@ function render(data) {
   renderFetchHint();
   el('node-pair-code').value = data.pairing?.code || '';
   el('node-pairing-expiry').textContent = data.pairing ? `Code expires ${new Date(data.pairing.expires_at).toLocaleTimeString()}. It pairs one Mac; create another code for the next Mac.` : 'Create a new pairing code to connect another Mac.';
-  el('nodes-list').innerHTML = data.nodes.length ? table(['Target','Mac','Status','Last seen','Progress','Message','Controls'], data.nodes.map(node => [
-    '', node.name, node.status, new Date(node.last_seen).toLocaleTimeString(), `${node.progress}%`, node.message,
+  el('nodes-list').innerHTML = data.nodes.length ? table(['Target','Mac','Status','Last seen','Process RAM','Progress','Message','Controls'], data.nodes.map(node => [
+    '', node.name, node.status, new Date(node.last_seen).toLocaleTimeString(),
+    node.rss_bytes == null ? 'Unavailable' : `${(node.rss_bytes / 1048576).toFixed(1)} MiB${node.status === 'offline' || !node.memory_received_at || Date.now() - new Date(node.memory_received_at).getTime() > 20000 ? ' · last reported' : ''}`,
+    `${node.progress}%`, node.message,
     `<div class="node-row-actions"><button data-node-id="${node.id}" data-node-action="${node.enabled && node.ready ? 'pause' : 'resume'}">${node.enabled && node.ready ? 'Pause' : 'Resume'}</button><button data-node-id="${node.id}" data-node-action="remove">Remove</button></div>`
   ]), true) : '<p class="empty-state">No nodes paired.</p>';
   // The table helper only allows HTML in its final column; target controls are inserted separately.
