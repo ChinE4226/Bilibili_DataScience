@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/static/css/dashboard.css">
 </head>
 <body>
+  <div class="global-navigation">
   <header>
     <h1>Bilibili Data Science</h1>
     <div id="status" class="muted">Loading...</div>
@@ -19,18 +20,21 @@
     <button data-section="workspace" aria-current="page">Workspace</button>
     <button data-section="settings">Settings</button>
   </nav>
+  </div>
   <main>
     <div class="work">
       <div id="page-feedback" class="progress" role="status" aria-live="polite" hidden></div>
       <div id="code-update-status" class="code-update-status" role="status" hidden></div>
       <div class="workspace-heading">
         <div><p id="section-eyebrow" class="eyebrow">COLLECT · UNDERSTAND · COMPARE</p><h2 id="section-title">Workspace</h2>
-        <p id="section-description" class="muted">One dataset, several ways to explore it. Fetch once, then work locally.</p></div>
+        <p id="section-description" class="muted">One dataset, several ways to explore it. Fetch once, then work locally.</p>
+        <div class="page-history"><button id="menu-back" type="button" disabled>← Back</button></div></div>
       </div>
       <div class="workspace-tool-row">
       <nav class="tool-nav workspace-groups" aria-label="Workspace tools" data-tools="workspace">
         <button data-group="data" aria-current="page">Data</button>
         <button data-group="analysis">Analysis</button>
+        <button data-group="tracking">Tracking</button>
         <button data-group="tasks">Tasks</button>
         <button data-group="nodes">Nodes</button>
       </nav>
@@ -44,6 +48,7 @@
         <nav class="tool-nav subtool-nav" aria-label="Data tools" data-workspace-tools="data">
           <button data-panel="videos" aria-current="page">Creator dataset</button>
           <button data-panel="sampling">Sampling · random / weekly</button>
+          <button data-panel="snapshots">Dataset snapshots</button>
         </nav>
         <nav class="tool-nav subtool-nav" aria-label="Analysis tools" data-workspace-tools="analysis" hidden>
           <button data-panel="analysis">Overview</button>
@@ -52,19 +57,6 @@
           <button data-panel="anomalies">Unusual values</button>
           <button data-panel="saved-plots">Saved charts</button>
         </nav>
-      </div>
-      <div class="menu-history">
-        <button id="menu-back" type="button" disabled>← Back</button>
-        <span id="menu-back-hint" class="muted" hidden>Click unused page space to go back.</span>
-        <div class="creator-switcher">
-          <button id="open-library" type="button" aria-expanded="false" aria-controls="creator-menu">Choose creator</button>
-          <div id="creator-menu" class="creator-menu" hidden>
-            <label>Find a creator <input id="creator-search" type="search" placeholder="Name or UID" autocomplete="off"></label>
-            <div id="creator-menu-feedback" class="progress" role="status" aria-live="polite" hidden></div>
-            <div id="creator-options" class="creator-options"></div>
-            <button id="manage-creators" type="button">Add / manage creators</button>
-          </div>
-        </div>
       </div>
       <aside id="analysis-dataset-context" class="dataset-context" aria-label="Analysis dataset" hidden>
         <div class="analysis-source-controls"><label>Analysis collection<select id="analysis-collection"><option value="">Creator dataset</option></select></label>
@@ -75,6 +67,21 @@
         <button id="analysis-creator-filters" type="button" data-config-panel="videos">Data &amp; filters</button>
       </aside>
       <section class="selection-card" aria-label="Working dataset">
+        <div id="dataset-creator-slot">
+          <div id="creator-context" class="creator-context">
+            <div class="creator-identity"><p id="creator-context-label" class="context-label">Dataset creator</p>
+              <strong id="creator-context-name">No creator selected</strong><p id="creator-context-uid" class="muted"></p></div>
+            <div class="creator-switcher">
+              <button id="open-library" type="button" aria-expanded="false" aria-controls="creator-menu">Choose creator</button>
+              <div id="creator-menu" class="creator-menu" hidden>
+                <label>Find a creator <input id="creator-search" type="search" placeholder="Name or UID" autocomplete="off"></label>
+                <div id="creator-menu-feedback" class="progress" role="status" aria-live="polite" hidden></div>
+                <div id="creator-options" class="creator-options"></div>
+                <button id="manage-creators" type="button">Add / manage creators</button>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="dataset-heading"><div><h2>Working dataset</h2>
         <p id="dataset-status" class="muted" role="status">Choose a creator and video range, then fetch your dataset.</p></div>
         <button id="fetch-dataset" type="button" class="primary">Fetch / Refresh</button></div>
@@ -138,6 +145,7 @@
       </section>
       <section id="panel-creator" class="panel">
         <div class="page-heading"><h2>Creator profile</h2><button id="load-creator-detail" class="primary">View Selected Creator Detail</button></div>
+        <div id="profile-creator-slot"></div>
         <div id="creator-detail-result" class="detail-box"></div>
       </section>
       <section id="panel-single-video" class="panel">
@@ -153,12 +161,74 @@
       </section>
       <section id="panel-videos" class="panel active">
         <div class="page-heading"><div><h2>Dataset rows</h2><p class="muted">Inspect the videos included in your current selection.</p></div></div>
-        <button id="list-videos" class="primary">Apply Filters / Show Rows</button>
+        <div class="actions"><button id="list-videos" class="primary">Apply Filters / Show Rows</button><button data-panel="snapshots">Browse snapshots</button></div>
+        <div id="creator-snapshot-choice"></div>
         <div id="videos-progress" class="progress panel-progress" role="status" hidden></div>
         <div id="videos-result" class="result"></div>
       </section>
+      <section id="panel-snapshots" class="panel">
+        <div class="page-heading"><div><h2>Dataset snapshots</h2><p class="muted">Saving is optional. Fetched datasets and samples stay in RAM until you explicitly save a snapshot.</p></div></div>
+        <h3>Collection snapshot</h3>
+        <div class="row">
+          <label>Data to save<select id="snapshot-mode"><option value="loaded">Save fetched data</option><option value="fresh">Fetch new data</option></select></label>
+          <label>Collection<select id="snapshot-collection"><option value="creator">Creator dataset</option></select></label>
+        </div>
+        <p id="snapshot-source-help" class="muted">Save the selected whole collection. Other data in RAM remains temporary.</p>
+        <div class="actions"><button id="snapshot-save-collection" class="primary">Save data as a snapshot</button><button id="snapshot-configure-creator" type="button" data-config-panel="videos" hidden>Configure creator &amp; range</button><button id="snapshot-refresh">Refresh saved collections</button><button id="snapshot-backup">Back up database</button></div>
+        <p id="snapshot-feedback" class="muted" role="status" aria-live="polite"></p>
+        <div id="snapshot-collection-progress" class="progress panel-progress" role="status" hidden></div>
+        <h3>Saved collection snapshots</h3>
+        <div id="snapshot-batches" class="result"></div>
+        <div id="snapshot-batch-detail" hidden>
+          <div class="page-heading"><h3 id="snapshot-batch-title"></h3><a id="snapshot-batch-export">Download collection · CSV</a></div>
+          <p id="snapshot-batch-summary" class="muted"></p>
+          <div id="snapshot-batch-rows" class="result"></div>
+        </div>
+        <details><summary>Open snapshots in DB Browser</summary><p>Open this database, then Browse Data → collection_snapshot_rows:</p><code id="snapshot-database-path"></code></details>
+      </section>
+      <section id="panel-tracking" class="panel">
+        <div class="page-heading"><div><h2>Tracking</h2><p class="muted">Follow one video's performance over time, or discover a creator's new releases and start monitoring them.</p></div><button id="tracking-refresh">Refresh monitoring</button></div>
+        <ol class="tracking-workflow"><li>Add a video or creator watch.</li><li>Collect a baseline, then repeat checks on schedule.</li><li>Analyze changes using actual collection times.</li></ol>
+        <h3>Monitor a known video</h3>
+        <div class="row">
+          <label>Video link or BV ID<input id="tracking-video" list="tracking-saved-videos" placeholder="https://www.bilibili.com/video/BV..." autocomplete="off"></label>
+          <label>Check interval · minutes<input id="tracking-interval" type="number" min="1" max="10080" step="1" value="10"></label>
+        </div>
+        <datalist id="tracking-saved-videos"></datalist>
+        <div class="actions"><button id="tracking-start" class="primary">Start video tracking</button><button id="tracking-show-history">Analyze video history</button></div>
+        <details class="tracking-creator-form" open>
+          <summary>Watch a creator for new releases</summary>
+          <div class="row">
+            <label>Creator UID or profile link<input id="tracking-creator" placeholder="https://space.bilibili.com/12345" autocomplete="off"></label>
+            <label>Release check interval · minutes<input id="tracking-release-interval" type="number" min="1" max="10080" step="1" value="10"></label>
+            <label>New video check interval · minutes<input id="tracking-new-video-interval" type="number" min="1" max="10080" step="1" value="10"></label>
+          </div>
+          <div class="actions"><button id="tracking-watch-creator" class="primary">Start release watch</button></div>
+          <p class="muted">First scan establishes the existing-upload baseline. Later new releases get video trackers automatically. Pausing a creator stops discovery; its video trackers keep their own schedules.</p>
+        </details>
+        <p id="tracking-feedback" class="muted" role="status" aria-live="polite"></p>
+        <p id="tracking-summary" class="muted"></p>
+        <p class="muted">Checks run on this Mac while the main app and computer are running. Missed checks stay gaps. Dataset collection settings and filters do not affect tracking.</p>
+        <h3>Creator release watches</h3><div id="tracking-creators" class="result"></div>
+        <h3>Detected releases</h3><div id="tracking-releases" class="result"></div>
+        <h3>Video trackers</h3><div id="tracking-trackers" class="result"></div>
+        <h3>Recorded video series</h3><div id="tracking-videos" class="result"></div>
+        <div class="page-heading tracking-history-heading"><h3 id="tracking-history-title">Tracking analysis</h3><a id="tracking-export" hidden>Download all observations · CSV</a></div>
+        <div class="row tracking-analysis-controls">
+          <label>Tracking metric<select id="tracking-metric"><option value="views">Views</option><option value="likes">Likes</option><option value="coins">Coins</option><option value="favorites">Favorites</option><option value="replies">Replies</option><option value="shares">Shares</option><option value="danmaku">Danmaku</option></select></label>
+          <label>Chart value<select id="tracking-chart-mode"><option value="value">Observed count</option><option value="rate_per_hour">Change per hour</option></select></label>
+        </div>
+        <p id="tracking-history-summary" class="muted">Choose Analyze on a tracked video. Analysis compares that video's own observations; saved datasets are excluded.</p>
+        <div id="tracking-analysis-summary" class="result"></div>
+        <div id="tracking-chart" hidden></div>
+        <p class="muted">Rates use elapsed time between adjacent observations. Missing metrics break comparisons. Counter decreases are retained and flagged; rates are interval averages. Lines connect observed endpoints and do not estimate missed counts.</p>
+        <div id="tracking-history" class="result"></div>
+        <details id="tracking-errors" hidden><summary>Failed video checks · latest 50</summary><div id="tracking-errors-result" class="result"></div></details>
+        <div class="actions"><button id="tracking-backup">Back up database</button></div>
+        <details><summary>Open tracking in DB Browser</summary><p>Open this database, then Browse Data → tracking_observations or tracking_history:</p><code id="tracking-database-path"></code></details>
+      </section>
       <section id="panel-sampling" class="panel">
-        <div class="page-heading"><div><h2>Video sampling</h2><p class="muted">Collect a filtered random sample or a weekly popular list, then compare average performance.</p></div></div>
+        <div class="page-heading"><div><h2>Video sampling</h2><p class="muted">Collect a filtered random sample or a weekly popular list, then compare average performance.</p></div><button data-panel="snapshots">Browse snapshots</button></div>
         <div class="sampling-modes" role="tablist" aria-label="Sampling source">
           <button id="sample-mode-random" type="button" role="tab" aria-selected="true" aria-controls="sampling-random" data-sampling-mode="random">Random sample</button>
           <button id="sample-mode-weekly" type="button" role="tab" aria-selected="false" aria-controls="sampling-weekly" tabindex="-1" data-sampling-mode="weekly">Weekly popular</button>
@@ -193,34 +263,47 @@
         </div>
       </section>
       <section id="panel-tasks" class="panel">
-        <div class="page-heading"><div><h2>Run several tasks</h2><p class="muted">Choose your steps and start once. Each step runs after the previous one finishes.</p></div></div>
-        <p id="batch-context" class="muted"></p>
-        <fieldset class="batch-tasks"><legend>Tasks · run from top to bottom</legend>
-          <div class="batch-task" data-batch-row="fetch">
-            <label><input id="batch-fetch" type="checkbox" checked><span><strong>Fetch / Refresh dataset</strong><span id="batch-config-fetch" class="muted"></span></span></label>
-            <button type="button" data-config-panel="videos">Set range / filters</button><span id="batch-state-fetch" class="batch-task-state">Queued</span>
+        <div class="page-heading"><div><h2>Mission queue</h2><p class="muted">Each mission has its own object, settings, dataset and results. Later fetches keep earlier datasets in RAM.</p></div></div>
+        <div class="mission-layout">
+          <details id="mission-builder-panel" class="mission-builder-panel" open>
+          <summary>Add a mission</summary>
+          <fieldset id="mission-builder" class="mission-builder"><legend>Add a mission</legend>
+            <label>Mission name<input id="mission-name" placeholder="A · save and analyze" maxlength="100"></label>
+            <label>Source<select id="mission-source"><option value="fetch">Fetch a creator dataset</option></select></label>
+            <div id="mission-fetch-settings">
+              <label>Creator<select id="mission-creator"><option value="manual">Enter a creator UID</option></select></label>
+              <label id="mission-manual-creator">Creator UID<input id="mission-uid" inputmode="numeric" placeholder="123456"></label>
+              <label>Fetch on<select id="mission-fetch-source"><option value="auto">Automatic</option><option value="local">This Mac</option><option value="remote">Connected node</option><option value="parallel">This Mac + ready nodes</option></select></label>
+              <label>Collection range<select id="mission-selection-kind"><option value="position">Publication positions · valid count</option><option value="published">Publication dates</option><option value="metric">Metric range</option></select></label>
+              <div id="mission-range-position" class="row"><label>Start position<input id="mission-start" type="number" min="1" value="1"></label><label>End position<input id="mission-end" type="number" min="1" value="20"></label></div>
+              <div id="mission-range-published" class="row" hidden><label>Published from<input id="mission-start-time" type="date"></label><label>Published through<input id="mission-end-time" type="date"></label></div>
+              <div id="mission-range-metric" hidden><label>Metric<select id="mission-selection-metric"></select></label><div class="row"><label>Greater than<input id="mission-minimum" placeholder="100k"></label><label>Less than<input id="mission-maximum" placeholder="200k"></label></div></div>
+            </div>
+            <details><summary>Local view filters</summary><div class="row"><label>Minimum views<input id="mission-min-views" type="number" min="0"></label><label>Maximum views<input id="mission-max-views" type="number" min="0"></label></div><p class="muted">Processing uses these filters; snapshots save the whole collection.</p></details>
+            <fieldset class="mission-steps"><legend>Steps after collection · in this order</legend>
+              <label><input id="mission-snapshot" type="checkbox">Save data as a snapshot</label>
+              <label><input id="mission-analysis" type="checkbox" checked>Analyze dataset</label>
+              <label><input id="mission-plot" type="checkbox">Generate plot</label>
+              <label><input id="mission-division" type="checkbox">Calculate ratio</label>
+            </fieldset>
+            <div id="mission-plot-settings" hidden><label>Plot type<select id="mission-plot-mode"><option value="field">Metric values</option><option value="quotient">Ratio values</option></select></label><label>Plot metric<select id="mission-field"></select></label><label>Horizontal axis<select id="mission-plot-axis"><option value="time">Publication time</option><option value="number">Video number</option></select></label></div>
+            <div id="mission-ratio-settings" hidden><div class="row"><label>Numerator<select id="mission-numerator"></select></label><label>Denominator<select id="mission-denominator"></select></label></div><label>Ratio calculation<select id="mission-mode"><option value="aggregate">Pooled ratio</option><option value="single">Per-video ratios</option></select></label></div>
+            <p id="batch-context" class="muted">New fetches become separate datasets. Saving is optional.</p>
+            <button id="add-mission" type="button" class="primary">Add to queue</button>
+          </fieldset>
+          </details>
+          <div class="mission-queue"><div class="page-heading"><h3>Queued missions</h3><button id="refresh-missions" type="button">Refresh</button></div>
+            <div class="batch-actions"><button id="run-batch" type="button" class="primary" disabled>Run / resume queue</button><button id="stop-batch" type="button" disabled>Stop after current step</button></div>
+            <p id="batch-status" role="status" aria-live="polite">Ready.</p>
+            <p class="muted">The server runs missions in order, even if you close this tab. Datasets and results stay in RAM until you remove the mission or restart the app. Up to 30 missions; no automatic eviction.</p>
+            <div id="mission-list"><p class="empty-state">Add a mission for A, then another for B or C.</p></div>
           </div>
-          <div class="batch-task" data-batch-row="division">
-            <label><input id="batch-division" type="checkbox" checked><span><strong>Calculate ratios</strong><span id="batch-config-division" class="muted"></span></span></label>
-            <button type="button" data-config-panel="division">Set ratio</button><span id="batch-state-division" class="batch-task-state">Queued</span>
-          </div>
-          <div class="batch-task" data-batch-row="analysis">
-            <label><input id="batch-analysis" type="checkbox" checked><span><strong>Calculate statistics</strong><span id="batch-config-analysis" class="muted">Metric distributions, unusual values, and engagement</span></span></label>
-            <button type="button" data-config-panel="analysis">View statistics</button><span id="batch-state-analysis" class="batch-task-state">Queued</span>
-          </div>
-          <div class="batch-task" data-batch-row="plot">
-            <label><input id="batch-plot" type="checkbox"><span><strong>Generate chart</strong><span id="batch-config-plot" class="muted"></span></span></label>
-            <button type="button" data-config-panel="plot">Set chart</button><span id="batch-state-plot" class="batch-task-state">Not selected</span>
-          </div>
-        </fieldset>
-        <p class="muted">Processing uses the same dataset and view filters. Uncheck Fetch to reuse your loaded dataset. Results appear on their usual pages. Keep this tab open until the batch finishes.</p>
-        <div class="batch-actions"><button id="run-batch" type="button" class="primary">Run selected tasks</button><button id="stop-batch" type="button" disabled>Stop after current task</button></div>
-        <p id="batch-status" role="status" aria-live="polite">Ready.</p>
-        <div id="batch-progress" class="progress panel-progress" role="status" hidden></div>
+        </div>
+        <section id="mission-result" class="mission-result" hidden><div class="page-heading"><h3 id="mission-result-title"></h3><button id="mission-result-close" type="button">Close results</button></div><div id="mission-result-content"></div></section>
       </section>
       <section id="panel-nodes" class="panel">
         <div class="page-heading"><div><h2>Fetching nodes</h2><p class="muted">Connect other Macs here. Fetch and analyse through the usual workspace pages.</p></div><button type="button" data-config-panel="videos">Open Dataset</button></div>
-        <p class="muted">Dataset and Tasks automatically use a ready fetching node, or this Mac when none is ready. All results enter the same working dataset.</p>
+        <p class="muted">Automatic fetching uses a ready node, or this Mac when none is ready. Data updates the working dataset; each mission in Tasks retains its own dataset.</p>
         <h3>Connect another Mac</h3>
         <div class="row controls"><label>Connection-service port<input id="node-service-port" type="number" min="1" max="65535" value="8010"></label>
           <button id="start-node-service" class="primary">Start node connections</button><button id="stop-node-service" disabled>Stop connections</button></div>

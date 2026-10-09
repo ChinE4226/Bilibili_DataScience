@@ -8,8 +8,10 @@ export function updateSelectedCreator(selected) {
   label.textContent = selected ? `${selected.name} (UID ${selected.uid})` : "No Creator selected.";
   label.title = label.textContent;
   const libraryButton = document.getElementById("open-library");
-  libraryButton.textContent = selected ? `Creator: ${selected.name}` : "Choose creator";
+  libraryButton.textContent = selected ? 'Change creator' : 'Choose creator';
   libraryButton.title = `${label.textContent} — choose creator`;
+  document.getElementById('creator-context-name').textContent = selected?.name || 'No creator selected';
+  document.getElementById('creator-context-uid').textContent = selected ? `UID ${selected.uid}` : 'Choose a creator to get started.';
   renderCreatorOptions();
   document.querySelectorAll("button[data-uid]").forEach((button) => {
     const active = button.dataset.uid === selected?.uid;

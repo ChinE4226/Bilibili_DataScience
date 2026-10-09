@@ -324,8 +324,8 @@ async def fetch_selected_video_items(payload: dict[str, Any], *, creator_uid=Non
         await client.close_bilibili_client()
 
 
-async def fetch_followers() -> int | None:
-    selected = selected_creator()
+async def fetch_followers(*, creator_uid=None) -> int | None:
+    selected = {'uid': creator_uid} if creator_uid is not None else selected_creator()
     if selected is None:
         return None
     credential = account_service.credential_from_env()

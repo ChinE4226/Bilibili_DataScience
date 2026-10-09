@@ -154,8 +154,8 @@ pairing, while browser refresh preserves them. Download current view works witho
 ## Dashboard Navigation
 
 - **Explore** groups the Creators library, creator profiles, and single-video lookup.
-- **Workspace** has four destinations: Data, Analysis, Tasks, and Nodes.
-  Data contains Creator dataset and Sampling (Random sample / Weekly popular).
+- **Workspace** has five destinations: Data, Analysis, Tracking, Tasks, and Nodes.
+  Data contains Creator dataset, Sampling (Random sample / Weekly popular), and Dataset snapshots.
   Analysis contains Overview, Charts, Ratios & engagement, Unusual values, and Saved charts.
   Collection and local filters appear only on Creator dataset; analysis shows a compact dataset summary.
 - **Settings** contains account, sign-in, and request controls.
@@ -164,11 +164,13 @@ The dashboard opens on Workspace. Fetching updates dataset rows and collapses
 collection controls without changing the active page. Switching tools keeps your controls and results; returning
 to a section restores its last view. Saved charts remain available without a fetch.
 Collection and filter controls appear only on Dataset; Statistics, Ratios, and Charts
-reuse its selection and filters. The creator selector shares the Back button row.
+reuse its selection and filters. Back sits below the section description on every
+page. Creator selection is part of dataset setup and the creator profile page;
+analysis links back to dataset setup; Tasks captures separate creator settings for each mission.
 
 Random samples and weekly reports now have **Use in Analysis**. This opens Overview
-on the exact collected rows; Charts, Ratios, Unusual values and processing-only
-batch tasks use the same collection without fetching again. The **Analysis collection**
+on the exact collected rows; Charts, Ratios, Unusual values and missions using loaded
+rows use the same collection without fetching again. The **Analysis collection**
 menu switches between the creator dataset and retained sampling collections.
 Switching clears the previous source's analysis results. Your creator dataset stays
 available, with its own local filters. Sampling collections have separate inclusive
@@ -183,27 +185,167 @@ mixed-creator collections support the six video metrics.
 
 The latest four sampling collections (at most 2,500 rows each) stay in server RAM.
 Expired collections require an explicit recollection on Sampling; they never
-silently refetch. No collection or report files are written. Browser refresh or
+silently refetch. Ordinary collection and analysis actions write no collection or
+report files; explicit snapshots can persist a selected collection. Browser refresh or
 reopening a tab restores the latest weekly and random reports from these retained
 collections; restarting main clears them.
 
-## Running Several Tasks
+## Dataset Snapshots
 
-Open **Workspace → Tasks**, choose Fetch / Refresh, Ratios, Statistics, and/or
-Charts, then click **Run selected tasks**. Selected steps run in that order.
-Configure the range and filters on Dataset, the ratio on Ratios, and the chart
-on Charts; the Tasks page shows those settings and links to each page.
+After fetching a creator dataset, weekly list or random sample, click **Save data
+as a snapshot** beside the result to save that whole collection. Saving is
+optional: continuing without clicking it keeps the data in RAM. The result
+shows **Snapshot saved** after a successful save.
 
-Fetch runs once, then processing steps reuse the collected dataset. Uncheck Fetch
-to process an already loaded dataset. Settings are captured when the batch starts,
-and editing controls stay disabled during execution. Navigation remains available,
-and completion does not change the current page. Results appear on the usual pages.
+Open **Workspace → Data → Dataset snapshots**. Under **Collection snapshot**,
+choose the creator dataset or a retained weekly/random sample, then choose:
 
-Each task shows its progress and completion. A failed task stops the batch and
-marks later tasks as skipped, preserving completed results. **Stop after current
-task** lets the active operation finish, then skips the remaining steps.
-Keep the browser tab open until completion. The queue and results stay in memory;
-running a batch does not save charts or create dataset files.
+- **Save fetched data** saves the whole selected collection already loaded in
+  RAM, with its original collection time. It makes no network requests and saves
+  no other loaded collections. Local analysis filters do not trim the snapshot.
+- **Fetch new data** collects the selected source again and saves only that new
+  result. Creator collection uses the current controls on Data, including the
+  fetching source; samples use their original issue or search scope and seed.
+  Existing RAM collections remain unchanged and are not saved by this action.
+
+Use **View collection** under **Saved collection snapshots** to inspect a saved
+collection or download its complete CSV. Collection and save times are separate.
+Saving the same loaded data again creates another collection record but reuses
+its observations, so it does not invent a new point in video history. Empty or
+expired loaded collections must be collected first.
+
+## Tracking workflow
+
+Open **Workspace → Tracking**. This workflow has its own targets, schedules,
+observation history and time-series algorithm. Dataset ranges, samples and local
+analysis filters do not affect it; saving a dataset never adds a tracking point.
+
+1. **Monitor a known video:** enter a video URL/BV ID and check interval, then
+   **Start video tracking**. The first fresh check establishes its metric baseline.
+2. **Watch for releases:** enter a creator UID/profile link, discovery interval,
+   and the interval to use for new videos. **Start release watch** establishes an
+   existing-upload baseline on its first successful scan. Later uploads with a
+   publication time after that baseline automatically get video trackers.
+3. **Collect over time:** the main server performs due checks. **Check now** and
+   **Check releases now** run explicit checks without changing loaded datasets.
+   Duplicate discoveries never create duplicate video trackers. Existing paused
+   trackers remain paused, with their original interval.
+4. **Analyze a video:** choose **Analyze**, select one of seven metrics, and view
+   observed counts or interval change per hour against collection time. The report
+   gives baseline/latest values, net change, elapsed hours, growth percentage,
+   rates, rate changes and video age. CSV exports the complete observation history.
+5. **Pause/resume independently:** pausing a creator stops release discovery;
+   its video trackers keep their own schedules. Pausing a video retains its history.
+   An already running check may finish. Resuming makes the next check due now.
+
+Tracking compares the same video's cumulative counts at successive observation
+times. It does not run dataset distributions or compare different videos by their
+publication dates. Change/hour uses actual elapsed time, not the requested check
+interval. Missing metrics break adjacent comparisons; decreases are retained and
+flagged. Percentage growth from zero is unavailable. Rate changes are unavailable
+across missing data or counter decreases. Rates are averages over each observed
+interval, not instantaneous activity. No missing points are estimated/backfilled.
+
+The browser can be closed, but the main app and computer must remain running.
+Active watches resume after restart; overdue work gets one check rather than
+inventing missed observations. Collection shares the network lock with foreground
+operations. Failed video and creator checks are recorded separately and retry no
+sooner than 5 minutes or their configured interval. Release discovery scans up to
+500 newest uploads per check and reports an error if it cannot reach its baseline
+within that bound. It detects published videos; it does not predict release dates
+or recover releases removed before a successful check.
+
+The database defaults to **`data/tracking.sqlite3` in this checkout**, independent
+of the account runtime directory selected by the Mac launchers. Override it with
+`BILIBILI_TRACKING_DB` if needed. These local database and backup files are ignored
+by Git. No credentials, descriptions, images, or raw API responses are saved.
+Ordinary lookups and dataset/analysis actions continue to use RAM; only explicit
+snapshots and tracker checks save video metrics.
+
+In **DB Browser for SQLite**, choose **Open Database**, select the file, then use
+**Browse Data**. Tables are `videos`, `trackers`, `snapshots`, `collection_errors`,
+`snapshot_batches` (one saved collection), and `snapshot_batch_items` (its ordered
+video observations). The `collection_snapshot_rows` view joins collection details
+and metrics for easy browsing. `tracking_observations`,
+`latest_tracking_observations` and `tracking_history`
+show only tracking checks. `creator_watches`, `creator_seen` and
+`creator_watch_errors` retain discovery schedules, baselines, releases and failures.
+The legacy `snapshots`, `latest_snapshots` and `snapshot_history` include the shared
+raw observation store; use the dedicated views to keep the two workflows separate.
+Snapshots preserve the observed title, creator, publication time,
+views, likes, coins, favorites, replies, shares, and danmaku. Zero is valid, missing
+or invalid counts are SQL `NULL`, and decreasing counts are retained. History
+starts at your first successful observation; it cannot recover earlier metrics.
+
+All `*_at` timestamps use ISO 8601 UTC; `published_at` is Unix seconds. The dashboard
+displays Beijing time. For example, in DB Browser's **Execute SQL** tab:
+
+```sql
+SELECT bvid, datetime(collected_at, '+8 hours') AS collected_beijing,
+       views, views_change, views_per_hour, likes, coins
+FROM tracking_history
+ORDER BY collected_at DESC;
+```
+
+To browse one whole collection, replace `1` with its ID from `snapshot_batches`:
+
+```sql
+SELECT label, bvid, title, views, likes, collected_at, saved_at
+FROM collection_snapshot_rows
+WHERE batch_id = 1
+ORDER BY position;
+```
+
+Pause trackers before manually editing tables and take a backup first. The
+**Back up database** action uses SQLite's backup API to include committed WAL
+changes; copying only a database file during collection may omit those changes.
+Do not edit or delete its `-wal` / `-shm` sidecar files. The app creates its
+versioned schema automatically and upgrades existing history without deleting it;
+to initialize without starting the dashboard:
+
+```sh
+python -B -m bilibili_ds.tracking
+```
+
+## Mission Queue
+
+Open **Workspace → Tasks** and add one mission per creator or loaded dataset.
+Each mission captures its own name, creator UID, collection range, fetching source,
+local view filters, chart settings, ratio settings and selected steps when added.
+You can choose a saved creator or enter a different creator UID directly.
+
+For example, add these three missions, then click **Run / resume queue**:
+
+1. A: fetch → save snapshot → analyze.
+2. B: fetch → generate plot.
+3. C: fetch → calculate ratio.
+
+Fetching B and C preserves A's whole dataset in RAM. Mission fetches also leave the
+ordinary Creator dataset and selected creator unchanged. **Source** can instead
+copy any already loaded creator dataset, sample or earlier mission dataset;
+that copy survives replacement or expiration of its original source.
+
+**View data & results** reopens any mission's retained rows and results. Open its
+saved analysis, plot or ratios on the usual pages, or use its dataset for new
+analysis. Retained mission datasets also appear in **Analysis collection** and
+**Dataset snapshots**. Generating a plot does not save a PNG.
+
+Only a checked **Save data as a snapshot** step writes the whole collection to
+SQLite, at its original collection time. Analysis, plots and ratios apply that
+mission's local filters; snapshots include all fetched rows.
+
+Move missions up/down to change their execution order, duplicate settings to build
+another mission, or remove a mission to release its retained data. Up to 30 missions
+are retained without automatic eviction. Position ranges support 1–500 valid videos;
+each mission can retain at most 2,500 rows. The account active when adding the mission
+must remain active when running/resuming it.
+
+The server runs the queue, so navigating away, refreshing or closing the browser
+does not cancel it. **Stop after current step** pauses after the active operation
+finishes. A failed step stops the queue and preserves earlier results; resume retries
+that step and continues without repeating completed fetches or snapshots. Missions,
+queue state and results stay in RAM until removed or the main app restarts. Explicit
+SQLite snapshots remain available after restart.
 
 ## Random Video Samples
 
@@ -247,7 +389,8 @@ the main Mac reads the creator's list pages, then all participating Macs fetch
 different video details concurrently. Automatic chooses one Mac per collection;
 Parallel explicitly requires at least one ready node with the latest source.
 The returned rows fill the usual in-memory working dataset;
-Statistics, Ratios, Charts and batch tasks reuse it without another collection.
+Statistics, Ratios and Charts reuse it without another collection. Missions can copy
+it into their own retained dataset or fetch a different creator independently.
 
 Set **Collection requests per second → Apply pacing** on Dataset (0.1–4).
 Settings shows the same value. Connected nodes honor this rate with their own
@@ -371,14 +514,14 @@ python -m bilibili_ds.web --no-reload --port 8010
 ```
 
 The dashboard groups related tools under Explore, Workspace, and Settings.
-Every page uses the same centered workspace. The current creator button opens a
+Every page uses the same centered workspace. **Change creator** in dataset setup
+or the creator profile opens a
 searchable dropdown for quick switching. Select a creator to close it, or dismiss
 it with Escape or a click outside. Add / manage creators opens the Creators tab
-under Explore. The dropdown is hidden on Creators, Settings, Single Video, and Saved Charts.
+under Explore. Creator selection appears only on Creator dataset and Creator profile.
 
-Click unused page space or the Back button to return to the previously visited
-menu view. While the dropdown is open, an outside click only closes it. Controls,
-results, charts, and selected text do not trigger blank-space navigation. Navigation
+Use the Back button to return to the previously visited menu view. Clicking outside
+an open dropdown closes it. Navigation
 history is kept in memory and resets on reload; existing form values and results
 stay available when switching views. Wide tables scroll within their own areas; charts resize to the viewport.
 
@@ -399,8 +542,9 @@ Run `node tests/browser/navigation.cjs` to check that switching pages, Sampling
 tabs and Back navigation preserve scroll position on desktop and mobile.
 Run the analysis browser checks with `node tests/browser/analysis.cjs`. They verify
 local chart changes, filter payloads, and desktop/mobile layout using sample data.
-Run `node tests/browser/batch.cjs` for task ordering, dataset reuse, captured settings,
-result rendering, failure handling, stopping, and responsive Tasks layout.
+Run `node tests/browser/batch.cjs` for multiple creator missions, retained datasets,
+explicit saves, results, reload recovery and responsive Tasks layout. Python mission
+integration tests also cover failure handling and stop/resume behavior.
 Run `node tests/browser/nodes.cjs` for pairing through two node web GUIs,
 distributed result collection, targeting, creator tasks, revocation and layout.
 

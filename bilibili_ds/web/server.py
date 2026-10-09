@@ -35,6 +35,8 @@ def main(args: Namespace) -> None:
     server, port = create_server(args.host, args.port, args.port_retries)
     url = f"http://{args.host}:{port}"
     previous_handlers = {}
+    from bilibili_ds.web.tracking import TrackingWorker
+    tracking_worker = TrackingWorker()
 
     def request_stop(signum, frame):
         raise KeyboardInterrupt
@@ -44,6 +46,7 @@ def main(args: Namespace) -> None:
         if signum is not None:
             previous_handlers[signum] = signal.signal(signum, request_stop)
     try:
+        tracking_worker.start()
         print(f"Serving Bilibili Data Science web UI at {url}")
         if args.open_browser:
             open_browser(url, args.browser)
@@ -52,6 +55,7 @@ def main(args: Namespace) -> None:
     except KeyboardInterrupt:
         print("\nStopping web server.")
     finally:
+        tracking_worker.stop()
         server.server_close()
         from bilibili_ds.distributed.coordinator import COORDINATOR
         COORDINATOR.stop()

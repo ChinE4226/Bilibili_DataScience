@@ -12,6 +12,9 @@ STATIC_DIR = PROJECT_ROOT / "static"
 
 CREATORS_FILE = OBJECTS_DIR / "creators.json"
 
+# Tracking history belongs to this checkout, independently of account runtime paths.
+TRACKING_DB = Path(os.environ.get('BILIBILI_TRACKING_DB', str(PROJECT_ROOT / 'data' / 'tracking.sqlite3'))).expanduser()
+
 QRCODE_FILE = RUNTIME_DIR / "bilibili_qrcode.png"
 COOKIE_FILE = RUNTIME_DIR / "bilibili_cookie.txt"
 LEGACY_CREDENTIAL_FILE = RUNTIME_DIR / "bilibili_credential.json"

@@ -9,9 +9,9 @@ import mimetypes
 import os
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, parse_qs
 
-from bilibili_ds import config, state as settings
+from bilibili_ds import config, state as settings, tracking
 from bilibili_ds.web import state, dataset
 from bilibili_ds.web.accounts import (
     account_detail,
@@ -31,7 +31,11 @@ from bilibili_ds.web.videos import fetch_single_video, selected_creator_detail
 from bilibili_ds.web.weekly import fetch_weekly_analysis
 from bilibili_ds.web.sampling import fetch_random_sample
 from bilibili_ds.web.nodes import node_route
+from bilibili_ds.web.missions import mission_route
 from bilibili_ds.web.live import source_versions
+from bilibili_ds.web.tracking import capture_snapshot, capture_observation, check_creator
+from bilibili_ds.web.snapshots import capture_collection
+from bilibili_ds.web.serializers import extract_bvid
 
 
 class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
@@ -68,6 +72,8 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
 
         if node_route(self, parsed, 'GET'):
             return
+        if mission_route(self, parsed, 'GET'):
+            return
         if path == "/":
             self.send_bytes(dashboard_html(), "text/html; charset=utf-8")
             return
@@ -90,11 +96,58 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
                     "chart_export_version": 3,
                     "collection_analysis_version": 1,
                     "workspace_restore_version": 1,
+                    "tracking_version": 2,
+                    "collection_snapshot_version": 1,
+                    "dataset_snapshot_version": 1,
+                    "mission_queue_version": 1,
                     "selected_creator": selected_creator(),
                     "account": account_summary(),
                     "request_frequency": settings.REQUEST_FREQUENCY,
                 }
             )
+            return
+        if path in {"/api/snapshots", "/api/snapshots/batch", "/api/snapshots/export", "/api/tracking", "/api/tracking/analysis", "/api/tracking/history", "/api/tracking/export", "/api/tracking/batch", "/api/tracking/batch-export"}:
+            try:
+                if path == '/api/snapshots':
+                    self.send_json(tracking.snapshot_overview())
+                elif path == "/api/tracking":
+                    self.send_json(tracking.overview())
+                elif path == '/api/tracking/analysis':
+                    query = parse_qs(parsed.query)
+                    self.send_json(tracking.analyse_history(extract_bvid(query.get('bvid', [''])[0]), query.get('metric', ['views'])[0], limit=int(query.get('limit', ['500'])[0])))
+                elif path in {"/api/tracking/batch", "/api/tracking/batch-export", '/api/snapshots/batch', '/api/snapshots/export'}:
+                    query = parse_qs(parsed.query)
+                    batch_id = int(query.get('id', [''])[0])
+                    if path in {"/api/tracking/batch", '/api/snapshots/batch'}:
+                        self.send_json(tracking.collection_history(batch_id))
+                    else:
+                        import csv
+                        import io
+                        output = io.StringIO(newline='')
+                        tracking.collection_history(batch_id, limit=1)  # Validate the ID even for an empty result.
+                        with tracking.connection() as db:
+                            cursor = db.execute('SELECT * FROM collection_snapshot_rows WHERE batch_id = ? ORDER BY position', (batch_id,))
+                            writer = csv.writer(output)
+                            writer.writerow([column[0] for column in cursor.description])
+                            writer.writerows(cursor)
+                        self.send_bytes(output.getvalue().encode('utf-8-sig'), 'text/csv; charset=utf-8')
+                else:
+                    query = parse_qs(parsed.query)
+                    bvid = extract_bvid(query.get('bvid', [''])[0])
+                    if path == "/api/tracking/history":
+                        self.send_json(tracking.history(bvid, limit=int(query.get('limit', ['500'])[0])))
+                    else:
+                        import csv
+                        import io
+                        output = io.StringIO(newline='')
+                        with tracking.connection() as db:
+                            cursor = db.execute('SELECT * FROM tracking_history WHERE bvid = ? ORDER BY collected_at, id', (bvid,))
+                            writer = csv.writer(output)
+                            writer.writerow([column[0] for column in cursor.description])
+                            writer.writerows(cursor)
+                        self.send_bytes(output.getvalue().encode('utf-8-sig'), 'text/csv; charset=utf-8')
+            except Exception as exc:
+                self.send_error_json(HTTPStatus.BAD_REQUEST, str(exc))
             return
         if path == "/api/creators":
             self.send_json({"creators": load_web_creators(), "selected_creator": selected_creator()})
@@ -187,6 +240,8 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
         path = parsed.path
         if node_route(self, parsed, 'POST'):
             return
+        if mission_route(self, parsed, 'POST'):
+            return
         if path not in {
             "/api/selected-creator",
             "/api/creators/add",
@@ -200,6 +255,17 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
             "/api/account/select",
             "/api/sign-in/qr/start",
             "/api/sign-in/qr/status",
+            "/api/tracking/snapshot",
+            "/api/tracking/trackers",
+            "/api/tracking/update",
+            "/api/tracking/backup",
+            "/api/tracking/collection",
+            "/api/snapshots/collection",
+            "/api/snapshots/backup",
+            "/api/tracking/check",
+            "/api/tracking/creators",
+            "/api/tracking/creators/update",
+            "/api/tracking/creators/check",
         }:
             self.send_error_json(HTTPStatus.NOT_FOUND, "Not found.")
             return
@@ -211,6 +277,41 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
             return
 
         try:
+            if path in {"/api/tracking/collection", '/api/snapshots/collection'}:
+                self.send_json(asyncio.run(capture_collection(data)))
+                return
+            if path == '/api/tracking/creators':
+                uid = str(data.get('creator') or '').strip()
+                if '://' in uid:
+                    parsed_creator = urlparse(uid)
+                    if parsed_creator.scheme not in {'http', 'https'} or parsed_creator.netloc != 'space.bilibili.com':
+                        raise ValueError('Use a creator UID or space.bilibili.com profile link.')
+                    uid = parsed_creator.path.strip('/').split('/')[0]
+                self.send_json({'watch': tracking.create_creator_watch(uid, data.get('interval_seconds', 600), data.get('video_interval_seconds', 600), label=data.get('label'))})
+                return
+            if path == '/api/tracking/creators/update':
+                self.send_json({'watch': tracking.update_creator_watch(data.get('watch_id'), status=data.get('status'), interval_seconds=data.get('interval_seconds'), video_interval_seconds=data.get('video_interval_seconds'))})
+                return
+            if path == '/api/tracking/creators/check':
+                self.send_json(asyncio.run(check_creator(data.get('watch_id'))))
+                return
+            if path == '/api/tracking/check':
+                row = tracking.get_tracker(data.get('tracker_id'))
+                self.send_json({'observation': asyncio.run(capture_observation(row['bvid'], tracker_id=row['id']))})
+                return
+            if path == "/api/tracking/trackers":
+                self.send_json({"tracker": tracking.create_tracker(extract_bvid(data.get('video')), data.get('interval_seconds', 600))})
+                return
+            if path == "/api/tracking/update":
+                self.send_json({"tracker": tracking.update_tracker(data.get('tracker_id'), status=data.get('status'),
+                                                                  interval_seconds=data.get('interval_seconds'))})
+                return
+            if path == "/api/tracking/snapshot":
+                self.send_json({"snapshot": asyncio.run(capture_snapshot(data.get('video'), tracker_id=data.get('tracker_id')))})
+                return
+            if path in {"/api/tracking/backup", '/api/snapshots/backup'}:
+                self.send_json(tracking.backup())
+                return
             if path == "/api/selected-creator":
                 uid = str(data.get("uid") or "").strip()
                 if not uid:
@@ -226,7 +327,12 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
                 self.send_json({"creator": entry})
                 return
             if path == "/api/video-lookup":
-                self.send_json({"video": asyncio.run(fetch_single_video(data.get("video")))})
+                if not dataset.LOCK.acquire(blocking=False):
+                    raise ValueError('Another video operation is running. Try again when it finishes.')
+                try:
+                    self.send_json({"video": asyncio.run(fetch_single_video(data.get("video")))})
+                finally:
+                    dataset.LOCK.release()
                 return
             if path == "/api/video-action":
                 self.send_json(asyncio.run(execute_video_action(data)))

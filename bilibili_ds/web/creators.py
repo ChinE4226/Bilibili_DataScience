@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+from contextvars import ContextVar
 from typing import Any
 
 from bilibili_ds import config
 from bilibili_ds.web import state
+
+CREATOR_OVERRIDE = ContextVar('mission_creator', default=None)
 
 
 def normalize_web_creator(entry: Any) -> dict[str, str] | None:
@@ -74,6 +77,9 @@ def add_web_creator(name: str, space: str) -> dict[str, str]:
 
 
 def selected_creator() -> dict[str, str] | None:
+    override = CREATOR_OVERRIDE.get()
+    if override is not None:
+        return override
     creators = load_web_creators()
     if not creators:
         return None

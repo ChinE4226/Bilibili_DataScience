@@ -8,13 +8,16 @@ import { renderCreatorDetail, renderSavedCreators, filterSavedCreators, renderCr
 import { renderVideos, lookupSingleVideo } from "./views/videos.js";
 import { updatePlotControls, renderPlot, setupPlot, syncPlotControls, resetPlot } from "./views/plots.js";
 import { renderAnalysis, setupAnalysis, syncAnalysisControls, resetAnalysis } from "./views/analysis.js";
-import { refreshCollections, setupCollections, renderAnalysisContext, recordDataset } from './collections.js';
+import { refreshCollections, setupCollections, renderAnalysisContext, recordDataset, chooseCollection } from './collections.js';
 import { restoreSelection } from './selection.js';
 import { runAction, startProgressPolling, stopProgressPolling } from "./progress.js";
-import { setupBatch, updateBatchSummary } from "./batch.js";
+import { setupBatch, updateBatchSummary, refreshBatch, configureBatch } from "./batch.js";
 import { fetchWeekly, renderWeekly } from "./views/weekly.js";
 import { fetchRandomSample, setupSampling, renderRandomSample } from "./views/sampling.js";
 import { setupNodes, refreshNodes } from "./views/nodes.js";
+import { setupTracking, refreshTracking, configureTracking } from "./views/tracking.js";
+import { setupSnapshots, refreshSnapshots, configureSnapshots } from './views/snapshots.js';
+import { refreshSnapshotChoices } from './snapshot-choice.js';
 
 async function restoreFetchedData() {
   let data = await getJSON('/api/workspace-data');
@@ -64,6 +67,10 @@ async function load({ restoreData = false } = {}) {
   document.getElementById("dataset-pacing-status").textContent = `Current pacing: ${health.request_frequency} requests/s for the next collection. Parallel work divides this rate across Macs; node caps may lower it.`;
   document.getElementById("fetch-source").dispatchEvent(new Event("change"));
   uiState.chartExportVersion = health.chart_export_version || 0;
+  configureTracking(health.tracking_version || 0);
+  configureSnapshots(health.dataset_snapshot_version || 0);
+  configureBatch(health.mission_queue_version || 0);
+  await refreshSnapshotChoices();
   syncPlotControls();
   const selected = health.selected_creator;
   uiState.selectedCreator = selected;
@@ -100,11 +107,12 @@ async function load({ restoreData = false } = {}) {
   if (health.collection_analysis_version >= 1) await refreshCollections();
   else document.getElementById('analysis-source-help').textContent = 'Restart the main dashboard to enable sampling collections in Analysis.';
   if (restoreData && health.workspace_restore_version >= 1) await restoreFetchedData();
+  await refreshBatch();
 }
 
-const panelSections = { creators: "explore", creator: "explore", "single-video": "explore", videos: "workspace", analysis: "workspace", division: "workspace", plot: "workspace", sampling: "workspace", tasks: "workspace", nodes: "workspace", "saved-plots": "workspace", anomalies: "workspace", settings: "settings" };
-const workspaceGroups = { videos: "data", sampling: "data", analysis: "analysis", division: "analysis", plot: "analysis", anomalies: "analysis", "saved-plots": "analysis", tasks: "tasks", nodes: "nodes" };
-const lastGroupPanel = { data: "videos", analysis: "analysis", tasks: "tasks", nodes: "nodes" };
+const panelSections = { creators: "explore", creator: "explore", "single-video": "explore", videos: "workspace", snapshots: "workspace", tracking: "workspace", analysis: "workspace", division: "workspace", plot: "workspace", sampling: "workspace", tasks: "workspace", nodes: "workspace", "saved-plots": "workspace", anomalies: "workspace", settings: "settings" };
+const workspaceGroups = { videos: "data", sampling: "data", snapshots: "data", tracking: "tracking", analysis: "analysis", division: "analysis", plot: "analysis", anomalies: "analysis", "saved-plots": "analysis", tasks: "tasks", nodes: "nodes" };
+const lastGroupPanel = { data: "videos", tracking: "tracking", analysis: "analysis", tasks: "tasks", nodes: "nodes" };
 const lastPanel = { explore: "creators", workspace: "videos", settings: "settings" };
 const sectionCopy = {
   explore: ["SEARCH · DISCOVER", "Explore", "Get to know a creator or inspect a single video before working with a dataset."],
@@ -113,7 +121,7 @@ const sectionCopy = {
 };
 
 const menuHistory = [];
-const panelLabels = { creators: "Creators", creator: "Creator profile", "single-video": "Single video", videos: "Dataset", analysis: "Statistics", division: "Ratios", plot: "Charts", sampling: "Sampling", tasks: "Tasks", nodes: "Nodes", "saved-plots": "Saved charts", anomalies: "Unusual values", settings: "Settings" };
+const panelLabels = { creators: "Creators", creator: "Creator profile", "single-video": "Single video", videos: "Dataset", snapshots: "Dataset snapshots", tracking: "Tracking", analysis: "Statistics", division: "Ratios", plot: "Charts", sampling: "Sampling", tasks: "Tasks", nodes: "Nodes", "saved-plots": "Saved charts", anomalies: "Unusual values", settings: "Settings" };
 
 function selectPanel(name, { remember = true } = {}) {
   const panel = document.getElementById(`panel-${name}`);
@@ -125,16 +133,18 @@ function selectPanel(name, { remember = true } = {}) {
   back.disabled = menuHistory.length === 0;
   back.textContent = back.disabled ? "← Back" : `← Back to ${panelLabels[menuHistory.at(-1)] || "previous view"}`;
   back.title = back.disabled ? "No previous page" : back.textContent;
-  document.getElementById("menu-back-hint").hidden = back.disabled;
   const section = panelSections[name];
   lastPanel[section] = name;
   const group = workspaceGroups[name];
   if (group) lastGroupPanel[group] = name;
   document.querySelectorAll("[data-workspace-tools]").forEach(nav => { nav.hidden = section !== "workspace" || nav.dataset.workspaceTools !== group; });
   document.getElementById("analysis-dataset-context").hidden = section !== "workspace" || group !== "analysis";
-  document.getElementById("open-library").hidden = ["creators", "settings", "single-video", "sampling", "nodes", "saved-plots"].includes(name);
-  document.querySelector(".creator-switcher").hidden = document.getElementById("open-library").hidden;
   closeCreatorMenu();
+  const creatorContext = document.getElementById('creator-context');
+  const creatorSlot = document.getElementById(name === 'creator' ? 'profile-creator-slot' : 'dataset-creator-slot');
+  if (creatorContext.parentElement !== creatorSlot) creatorSlot.append(creatorContext);
+  creatorContext.hidden = !['videos', 'creator'].includes(name);
+  document.getElementById('creator-context-label').textContent = name === 'creator' ? 'Profile creator' : 'Dataset creator';
   closeSelectMenus();
   document.querySelectorAll(".panel").forEach(item => item.classList.toggle("active", item === panel));
   document.querySelector(".selection-card").hidden = name !== "videos";
@@ -148,10 +158,17 @@ function selectPanel(name, { remember = true } = {}) {
   const [eyebrow, title, description] = sectionCopy[section];
   document.getElementById("section-eyebrow").textContent = eyebrow;
   document.getElementById("section-title").textContent = title;
-  document.getElementById("section-description").textContent = description;
+  document.getElementById("section-description").textContent = group === 'tracking'
+    ? 'Monitor releases and performance over time with independent schedules and video histories.' : description;
   document.querySelector("main").dataset.activePanel = name;
-  if (name === "tasks") updateBatchSummary();
+  if (name === "tasks") { updateBatchSummary(); refreshBatch().catch(error => { document.getElementById('batch-status').textContent = error.message; }); }
   if (name === "nodes") refreshNodes();
+  if (name === "tracking") refreshTracking().catch(error => {
+    document.getElementById('tracking-feedback').textContent = error.message;
+  });
+  if (name === 'snapshots') refreshSnapshots().catch(error => {
+    document.getElementById('snapshot-feedback').textContent = error.message;
+  });
 }
 
 function workspaceTasks() {
@@ -186,14 +203,34 @@ async function executeWorkspaceTask(task, payload = {}, progressTarget = null) {
   return data;
 }
 
+function chooseCollectionForMission(mission, view) {
+  chooseCollection(mission.collection_id);
+  document.getElementById('analysis-min-views').value = mission.config.local_filter.minimum_views ?? '';
+  document.getElementById('analysis-max-views').value = mission.config.local_filter.maximum_views ?? '';
+  const action = view === 'analysis-result' ? 'analysis' : view;
+  const report = view === 'analysis' ? null : mission.results[action];
+  if (report) {
+    recordDataset(report.dataset);
+    for (const [key,id] of [['field','plot-field'],['plot_mode','plot-mode'],['plot_axis','plot-axis'],['numerator','plot-numerator'],['denominator','plot-denominator'],['numerator','division-numerator'],['denominator','division-denominator'],['mode','division-mode']]) {
+      document.getElementById(id).value = mission.config[key];
+      document.getElementById(id).dispatchEvent(new Event('change'));
+    }
+    workspaceTasks().find(task => task.action === action).render(report);
+  }
+  selectPanel(action === 'division' ? 'division' : action === 'plot' ? 'plot' : 'analysis');
+  syncAnalysisControls();
+  syncPlotControls();
+}
+
 function setup() {
   setupPageHeight();
   setupPlot(load);
   setupAnalysis();
   ["metric-field", "plot-field", "analysis-field"].forEach((id) => fillOptions(id, metricFields));
   ["division-numerator", "division-denominator", "plot-numerator", "plot-denominator"].forEach((id) => fillOptions(id, divisionFields));
-  document.querySelectorAll("button[data-panel]").forEach((button) => {
-    button.addEventListener("click", () => selectPanel(button.dataset.panel));
+  document.addEventListener('click', event => {
+    const button = event.target.closest('button[data-panel]');
+    if (button && !button.disabled) selectPanel(button.dataset.panel);
   });
   document.querySelectorAll("button[data-section]").forEach(button => {
     button.addEventListener("click", () => selectPanel(lastPanel[button.dataset.section]));
@@ -247,10 +284,7 @@ function setup() {
       closeCreatorMenu();
       return;
     }
-    if (closeSelectMenus(event.target)) return;
-    if (window.getSelection()?.toString() || uiState.actionBusy) return;
-    // Only bare layout surfaces count as blank; controls, charts and results do not.
-    if (event.target.matches("body, main, .work, .workspace-heading, .panel, .page-heading, .tool-nav, .main-nav")) goBack();
+    closeSelectMenus(event.target);
   });
   const emptyMessages = {
     "creator-detail-result": "No profile loaded.", "single-video-result": "No video loaded.",
@@ -297,6 +331,8 @@ function setup() {
   bindAction("fetch-random-sample", fetchRandomSample);
   setupSampling();
   setupNodes();
+  setupTracking();
+  setupSnapshots();
   document.getElementById("single-video-input").addEventListener("keydown", (event) => {
     if (event.key === "Enter") document.getElementById("lookup-single-video").click();
   });
@@ -310,10 +346,10 @@ function setup() {
   bindAction("run-analysis", () => executeWorkspaceTask(workspaceTasks().find(task => task.id === "analysis")), syncAnalysisControls);
   bindAction("run-division", () => executeWorkspaceTask(workspaceTasks().find(task => task.id === "division")));
   bindAction("run-plot", () => executeWorkspaceTask(workspaceTasks().find(task => task.id === "plot")), syncPlotControls);
-  setupBatch({ tasks: workspaceTasks, execute: executeWorkspaceTask, syncControls() {
-    syncAnalysisControls();
-    syncPlotControls();
-  } });
+  setupBatch({ async viewResult(mission, view) {
+    await refreshCollections();
+    chooseCollectionForMission(mission, view);
+  }, onSettled() { syncAnalysisControls(); syncPlotControls(); } });
   bindAction("load-account", async () => {
     renderAccountDetail(await getJSON("/api/account-detail"));
   });

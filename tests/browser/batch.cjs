@@ -1,15 +1,15 @@
-const openPanel = require('./workspace.cjs');
-/* Offline task sequencing, settings capture, failures, and stop behavior. */
+/* Offline multi-object mission queue using real server routes and disposable SQLite. */
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const { once } = require('node:events');
 const path = require('node:path');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const openPanel = require('./workspace.cjs');
 const root = path.resolve(__dirname, '../..');
 const server = spawn(path.join(root, '.venv/bin/python'), ['-B', '-u', 'scripts/preview_dashboard.py', '--port', '0'], { cwd: root });
 let log = '';
-server.stdout.on('data', chunk => { log += chunk; });
-server.stderr.on('data', chunk => { log += chunk; });
+server.stdout.on('data', chunk => log += chunk);
+server.stderr.on('data', chunk => log += chunk);
 const finished = once(server, 'exit');
 
 (async () => {
@@ -17,153 +17,89 @@ const finished = once(server, 'exit');
   try {
     const deadline = Date.now() + 15000;
     while (!log.match(/http:\/\/127\.0\.0\.1:\d+/)) {
-      if (Date.now() > deadline || server.exitCode !== null) throw new Error(log);
+      if (Date.now() > deadline || server.exitCode !== null) throw Error(log);
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     browser = await chromium.launch({ headless: true, channel: process.env.BROWSER_CHANNEL || 'chrome' });
     const page = await browser.newPage({ viewport: { width: 1360, height: 1000 } });
-    async function openTool(name) {
-      await page.locator('[data-section="workspace"]').click();
-      await openPanel(page, name);
-    }
-    const errors = [], requests = [];
-    let failure = false, saves = 0;
-    const gates = new Map();
-    function hold(action) {
-      let release;
-      const promise = new Promise(resolve => { release = resolve; });
-      gates.set(action, promise);
-      return () => { gates.delete(action); release(); };
-    }
+    const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    page.on('request', request => { if (request.url().endsWith('/api/plots/save')) saves++; });
-    await page.route('**/api/video-action', async route => {
-      const payload = route.request().postDataJSON();
-      requests.push(payload);
-      if (gates.has(payload.action)) await gates.get(payload.action);
-      if (failure && payload.action === 'division') {
-        await route.fulfill({ status: 400, json: { error: 'Ratio failed for testing.' } });
-      } else {
-        await route.continue();
-      }
-    });
+    const settled = () => page.waitForFunction(() => !document.documentElement.dataset.actionBusy);
+    const choose = async (id, name) => {
+      await page.locator(`#${id}-trigger`).click();
+      await page.locator(`#${id}-options`).getByRole('option', { name }).click();
+    };
     await page.goto(log.match(/http:\/\/127\.0\.0\.1:\d+/)[0]);
     await page.locator('#status').filter({ hasText: 'Layout preview' }).waitFor();
-    await page.locator('#position-end').fill('100');
-    await page.locator('#dataset-filters > summary').click();
-    await page.locator('#local-min-views').fill('200');
-    await openTool('division');
-    await page.locator('#division-mode').selectOption('aggregate', { force: true });
-    await page.locator('#division-numerator').selectOption('favorites', { force: true });
-    await openTool('plot');
-    await page.locator('#plot-field').selectOption('likes', { force: true });
-    await page.locator('#plot-axis').selectOption('number', { force: true });
+    await page.locator('#fetch-dataset').click(); await settled();
+    const original = await page.locator('#dataset-status').innerText();
     await openPanel(page, 'tasks');
-    assert.equal(await page.locator('.selection-card').isVisible(), false);
-    assert.match(await page.locator('#batch-config-fetch').innerText(), /100 valid videos/);
-    assert.match(await page.locator('#batch-config-division').innerText(), /Favorites \/ Views.*pooled/);
-    assert.match(await page.locator('#batch-config-plot').innerText(), /Likes.*equal spacing/);
-    await page.locator('#batch-plot').check();
-
-    const releaseFetch = hold('list'), releaseRatio = hold('division');
-    await page.locator('#run-batch').click();
-    await page.locator('#batch-state-fetch').filter({ hasText: 'Running' }).waitFor();
-    assert.equal(requests.length, 1);
-    assert.equal(await page.locator('#position-end').isDisabled(), true);
-    assert.equal(await page.locator('#batch-analysis').isDisabled(), true);
-    assert.equal(await page.locator('#stop-batch').isEnabled(), true);
-    await openTool('analysis');
-    assert.equal(await page.locator('#run-analysis').isDisabled(), true, 'Other operations cannot overlap a batch');
-    // Simulate changes outside the UI: queued requests still use their captured settings.
-    await page.evaluate(() => {
-      document.querySelector('#position-end').value = '5';
-      document.querySelector('#local-min-views').value = '999';
-      document.querySelector('#division-numerator').value = 'coins';
-      document.querySelector('#plot-field').value = 'shares';
-    });
+    await choose('mission-creator', /Sample uploader/);
+    await page.locator('#mission-name').fill('A');
+    await page.locator('#mission-end').fill('2');
+    await page.locator('#mission-snapshot').check();
+    await page.locator('#add-mission').click(); await settled();
+    await choose('mission-creator', /Another uploader/);
+    await page.locator('#mission-name').fill('B');
+    await page.locator('#mission-end').fill('3');
+    await page.locator('#mission-snapshot').uncheck();
+    await page.locator('#mission-analysis').uncheck();
+    await page.locator('#mission-plot').check();
+    await page.locator('#add-mission').click(); await settled();
+    await choose('mission-creator', 'Enter a creator UID');
+    await page.locator('#mission-uid').fill('111111');
+    await page.locator('#mission-name').fill('C');
+    await page.locator('#mission-end').fill('1');
+    await page.locator('#mission-plot').uncheck();
+    await page.locator('#mission-division').check();
+    await page.locator('#add-mission').click(); await settled();
+    await page.locator('#run-batch').click(); await settled();
+    await openPanel(page, 'analysis');
+    await page.reload();
+    await page.locator('html[data-dashboard-ready="true"]').waitFor();
     await openPanel(page, 'tasks');
-    releaseFetch();
-    await page.locator('#batch-state-division').filter({ hasText: 'Running' }).waitFor();
-    assert.equal(requests.length, 2);
-    assert.match(await page.locator('#batch-state-fetch').innerText(), /Completed/);
-    assert.equal(await page.locator('#batch-state-analysis').innerText(), 'Queued');
-    releaseRatio();
-    await page.locator('#batch-status').filter({ hasText: 'Completed all 4 tasks' }).waitFor();
-    await page.waitForFunction(() => !document.querySelector('#run-batch').disabled);
-    assert.deepEqual(requests.map(request => request.action), ['list', 'division', 'analysis', 'plot']);
-    assert.equal(requests.filter(request => request.refresh).length, 1);
-    for (const request of requests) {
-      assert.equal(request.selection.end, '100');
-      assert.equal(request.local_filter.minimum_views, '200');
-      assert.equal(request.reuse_only, true);
-    }
-    assert.equal(requests[1].numerator, 'favorites');
-    assert.equal(requests[1].mode, 'aggregate');
-    assert.equal(requests[3].field, 'likes');
-    assert.equal(saves, 0, 'Running tasks must not save PNGs automatically');
-    assert.equal(await page.locator('#panel-tasks').isVisible(), true, 'Completion must preserve the active page');
-    assert.equal(await page.locator('#stop-batch').isDisabled(), true);
-    assert.equal(await page.locator('#position-end').isEnabled(), true);
-    await openTool('analysis');
+    await page.locator('#batch-status').filter({ hasText: '3 completed' }).waitFor();
+    const queue = await (await page.request.get('/api/missions')).json();
+    assert.deepEqual(queue.missions.map(row => row.config.creator.uid), ['123456', '987654', '111111']);
+    assert.deepEqual(queue.missions.map(row => row.dataset.count), [2, 3, 1]);
+    assert.deepEqual(queue.missions.map(row => row.completed_steps), [['fetch','snapshot','analysis'], ['fetch','plot'], ['fetch','division']]);
+    const [a, b, c] = await Promise.all(queue.missions.map(async row => (await page.request.get(`/api/missions/result?id=${row.id}`)).json()));
+    assert.equal(a.videos[0].views, 123456);
+    assert.equal(a.results.snapshot.batch.video_count, 2);
+    assert.equal(b.results.snapshot, undefined);
+    assert.equal(c.results.snapshot, undefined);
+    assert.equal(b.results.plot.points.length, 3);
+    assert.equal(b.results.plot.selected_creator.uid, '987654');
+    assert.ok(Math.abs(c.results.division.ratio - 10 / 111111) < 1e-10);
+    await page.locator('.mission-card').filter({ has: page.getByRole('heading', { name: '1. A', exact: true }) }).getByText('View data & results', { exact: true }).click(); await settled();
+    assert.match(await page.locator('#mission-result-content').innerText(), /Snapshot saved.*2 videos/);
+    await page.getByRole('button', { name: 'Open saved analysis', exact: true }).click(); await settled();
     assert.equal(await page.locator('#analysis-result svg').count(), 2);
     assert.equal(await page.locator('#analysis-field-trigger').isEnabled(), true);
-    await openTool('division');
-    assert.match(await page.locator('#division-result').innerText(), /Eligible/);
-    await openTool('plot');
-    assert.equal(await page.locator('#plot-workspace').isVisible(), true);
-    assert.equal(await page.locator('#plot-reset').isEnabled(), true);
+    await openPanel(page, 'videos');
+    assert.equal(await page.locator('#dataset-status').innerText(), original);
     await openPanel(page, 'tasks');
+    await page.locator('#mission-result-close').click();
+    // Loaded inputs are copied before processing; no fetch step is inserted.
+    await choose('mission-source', /A · .*2 videos in RAM/);
+    await page.locator('#mission-name').fill('A ratios');
+    await page.locator('#mission-analysis').uncheck();
+    await page.locator('#mission-division').check();
+    await page.locator('#add-mission').click(); await settled();
+    await page.locator('#run-batch').click(); await settled();
+    await page.locator('#batch-status').filter({ hasText: '4 completed' }).waitFor();
+    const loaded = (await (await page.request.get('/api/missions')).json()).missions.at(-1);
+    assert.deepEqual(loaded.completed_steps, ['division']);
+    assert.equal(loaded.dataset.count, 2);
+    assert.notEqual(loaded.collection_id, a.collection_id);
     if (process.env.SCREENSHOT_PATH) await page.screenshot({ path: process.env.SCREENSHOT_PATH });
-
-    // Reuse an existing dataset without an automatic fetch.
-    await page.locator('#batch-fetch').uncheck();
-    await page.locator('#batch-plot').uncheck();
-    requests.length = 0;
-    await page.locator('#run-batch').click();
-    await page.locator('#batch-status').filter({ hasText: 'Completed all 2 tasks' }).waitFor();
-    await page.waitForFunction(() => !document.querySelector('#run-batch').disabled);
-    assert.deepEqual(requests.map(request => request.action), ['division', 'analysis']);
-    assert.ok(requests.every(request => !request.refresh));
-
-    // A failed step stops remaining tasks, while completed results remain available.
-    failure = true;
-    await page.locator('#batch-fetch').check();
-    await page.locator('#batch-plot').check();
-    requests.length = 0;
-    await page.locator('#run-batch').click();
-    await page.locator('#batch-status').filter({ hasText: 'Stopped at Calculate ratios' }).waitFor();
-    await page.waitForFunction(() => !document.querySelector('#run-batch').disabled);
-    assert.deepEqual(requests.map(request => request.action), ['list', 'division']);
-    assert.match(await page.locator('#batch-state-division').innerText(), /Failed: Ratio failed/);
-    assert.equal(await page.locator('#batch-state-analysis').innerText(), 'Skipped after failure');
-    assert.equal(await page.locator('#batch-state-plot').innerText(), 'Skipped after failure');
-    failure = false;
-
-    // Stopping lets the active request complete and prevents subsequent requests.
-    requests.length = 0;
-    const releaseStoppedFetch = hold('list');
-    await page.locator('#run-batch').click();
-    await page.locator('#batch-state-fetch').filter({ hasText: 'Running' }).waitFor();
-    await page.locator('#stop-batch').click();
-    assert.match(await page.locator('#batch-status').innerText(), /Stopping after/);
-    releaseStoppedFetch();
-    await page.locator('#batch-status').filter({ hasText: 'Stopped. 1 of 4' }).waitFor();
-    await page.waitForFunction(() => !document.querySelector('#run-batch').disabled);
-    assert.deepEqual(requests.map(request => request.action), ['list']);
-    assert.equal(await page.locator('#batch-state-division').innerText(), 'Skipped by request');
-    for (const id of ['fetch', 'division', 'analysis', 'plot']) await page.locator(`#batch-${id}`).uncheck();
-    assert.equal(await page.locator('#run-batch').isDisabled(), true);
     for (const width of [1360, 768, 390, 320]) {
       await page.setViewportSize({ width, height: 1000 });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `Tasks overflow at ${width}px`);
-      const main = await page.locator('main').boundingBox();
-      assert.ok(Math.abs(main.x + main.width / 2 - width / 2) < 1, 'Workspace stays centered');
     }
     assert.deepEqual(errors, []);
-    console.log('Batch browser checks passed: sequence, reuse, settings capture, results, failure, stop, and responsive layout.');
+    console.log('Mission browser checks passed: targets, steps, optional snapshots, independent RAM, reload, saved results, loaded inputs and layout.');
   } finally {
-    await browser?.close();
-    server.kill();
-    await finished;
+    await browser?.close(); server.kill(); await finished;
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });

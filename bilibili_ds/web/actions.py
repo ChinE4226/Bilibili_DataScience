@@ -96,7 +96,7 @@ async def _execute_video_action(payload: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError('Follower ratios require a creator dataset. Choose video metrics for this collection.')
             if needs_followers:
                 set_progress("Fetching selected Creator follower count.", percent=92, count=len(items))
-                followers = await fetch_followers()
+                followers = await fetch_followers(creator_uid=metadata['uid']) if metadata.get('collection_id') else await fetch_followers()
             else:
                 followers = None
 
@@ -184,7 +184,8 @@ async def _execute_video_action(payload: dict[str, Any]) -> dict[str, Any]:
                         }
                     )
             cohort = metadata.get('source_kind') in {'weekly', 'random'}
-            selected = None if cohort else selected_creator()
+            selected = None if cohort else ({'uid': metadata['uid'], 'name': metadata.get('creator_name') or metadata['source_label']}
+                                           if metadata.get('collection_id') else selected_creator())
             plot_source = {'name': metadata['source_label'], 'uid': metadata['source_kind']} if cohort else selected
             plot_id = prepare_plot(plot_source, selection_label, plot_label, y_label, points) if plot_source else None
             set_progress(f"Plot completed. Selected {len(items)} video(s), plotted {len(points)} point(s).", running=False, percent=100, count=len(items))

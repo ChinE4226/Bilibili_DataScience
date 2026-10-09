@@ -16,7 +16,7 @@ from bilibili_ds.web.serializers import serialize_video
 from bilibili_ds.web.videos import check_detail_rejection
 
 
-async def fetch_random_sample(payload):
+async def fetch_random_sample(payload, *, snapshot_only=False):
     options = parse_sample_options(payload)
     if not dataset.LOCK.acquire(blocking=False):
         raise ValueError("Another video operation is running. Try again when it finishes.")
@@ -69,14 +69,17 @@ async def fetch_random_sample(payload):
         configured = False
         await client.close_bilibili_client()
         s = report['sampling']
-        result['dataset'] = dataset.retain_collection(sampled, kind='random', label=f"Random sample · {options['keyword']}",
-            started_at=started, collected_at=result['collected_at'], scope=s, report=result,
+        metadata = dataset.describe_collection(sampled, kind='random', label=f"Random sample · {options['keyword']}",
+            started_at=started, collected_at=result['collected_at'], scope=s,
             collection={'requested': s['sample_size'], 'examined': s['candidates'], 'details_checked': checked,
                         'skipped_invalid': s['invalid'], 'skipped_duplicates': s['duplicates'],
                         'collection_filtered': s['filtered_out'], 'eligible': s['eligible'], 'shortfall': s['shortfall']})
+        if not snapshot_only:
+            result['dataset'] = dataset.retain_collection(sampled, kind='random', label=metadata['source_label'],
+                started_at=started, collected_at=result['collected_at'], scope=s, collection=metadata['collection'], report=result)
         set_progress(f"Sample completed: {len(sampled)}/{options['sample_size']} videos from {report['sampling']['eligible']} eligible candidates.",
                      running=False, percent=100, count=len(sampled))
-        return result
+        return (sampled, metadata) if snapshot_only else result
     except Exception as exc:
         set_progress(f"Sampling failed: {exc}", running=False)
         raise

@@ -15,7 +15,28 @@ CURRENT = None
 COHORT_LIMIT = 4
 COHORT_ROW_LIMIT = 2500
 COHORTS = OrderedDict()
+MISSION_COLLECTIONS = OrderedDict()
 COHORT_LOCK = Lock()
+
+
+def retain_mission_collection(identity, items, metadata):
+    if len(items) > COHORT_ROW_LIMIT:
+        raise ValueError('A mission can retain at most 2,500 videos. Use a smaller collection range.')
+    meta = {**deepcopy(metadata), 'collection_id': identity, 'count': len(items)}
+    with COHORT_LOCK:
+        MISSION_COLLECTIONS[identity] = {'data': (deepcopy(items), meta['selection'], len(items)), 'meta': meta}
+    return deepcopy(meta)
+
+
+def remove_mission_collection(identity):
+    with COHORT_LOCK:
+        MISSION_COLLECTIONS.pop(identity, None)
+
+
+def describe_collection(items, *, kind, label, started_at, collected_at, collection, scope):
+    return {'source_kind': kind, 'source_label': label,
+            'started_at': started_at, 'collected_at': collected_at, 'count': len(items),
+            'selection': label, 'uid': None, 'collection': deepcopy(collection), 'scope': deepcopy(scope)}
 
 
 def retain_collection(items, *, kind, label, started_at, collected_at, collection, scope, report=None):
@@ -23,9 +44,8 @@ def retain_collection(items, *, kind, label, started_at, collected_at, collectio
     if kind not in {'weekly', 'random'} or len(items) > COHORT_ROW_LIMIT:
         raise ValueError('This collection exceeds the in-memory analysis limit.')
     identity = uuid4().hex
-    meta = {'collection_id': identity, 'source_kind': kind, 'source_label': label,
-            'started_at': started_at, 'collected_at': collected_at, 'count': len(items),
-            'selection': label, 'uid': None, 'collection': deepcopy(collection), 'scope': deepcopy(scope)}
+    meta = {'collection_id': identity, **describe_collection(items, kind=kind, label=label,
+            started_at=started_at, collected_at=collected_at, collection=collection, scope=scope)}
     from bilibili_ds.web.serializers import sort_by_published_time
     with COHORT_LOCK:
         COHORTS[identity] = {'data': (deepcopy(sort_by_published_time(items)), label, len(items)), 'meta': meta,
@@ -38,7 +58,7 @@ def retain_collection(items, *, kind, label, started_at, collected_at, collectio
 
 def collection_entries():
     with COHORT_LOCK:
-        return [deepcopy(entry['meta']) for entry in reversed(list(COHORTS.values()))]
+        return [deepcopy(entry['meta']) for entry in reversed(list(MISSION_COLLECTIONS.values()))] + [deepcopy(entry['meta']) for entry in reversed(list(COHORTS.values()))]
 
 
 def creator_metadata():
@@ -46,6 +66,22 @@ def creator_metadata():
     if current and current.get('key', ())[:2] == context_key({})[:2]:
         return deepcopy(current['meta'])
     return None
+
+
+def snapshot_collection(identity):
+    """Copy exactly the requested RAM collection. Never fetch or write files."""
+    if identity == 'creator':
+        current = CURRENT
+        if not current or current['key'][:2] != context_key({})[:2]:
+            raise ValueError('No creator dataset is loaded for this creator and account. Fetch it on Data first.')
+        metadata = deepcopy(current['meta'])
+        metadata['scope'] = {'uid': metadata.get('uid'), 'selection': json.loads(current['key'][2])}
+        return deepcopy(current['data'][0]), metadata
+    with COHORT_LOCK:
+        entry = (MISSION_COLLECTIONS.get(identity) or COHORTS.get(identity)) if isinstance(identity, str) else None
+        if entry is None:
+            raise ValueError('This collection has expired, was removed or the server restarted. Collect it again on Data, Sampling or Tasks.')
+        return deepcopy(entry['data'][0]), deepcopy(entry['meta'])
 
 
 def workspace_data():
@@ -84,9 +120,9 @@ async def acquire(payload, fetch):
         if payload.get('refresh'):
             raise ValueError('Recollect this source on Sampling; Analysis only reuses its collected rows.')
         with COHORT_LOCK:
-            entry = COHORTS.get(identity) if isinstance(identity, str) else None
+            entry = (MISSION_COLLECTIONS.get(identity) or COHORTS.get(identity)) if isinstance(identity, str) else None
             if entry is None:
-                raise ValueError('This collection has expired or the server restarted. Collect it again on Sampling.')
+                raise ValueError('This collection has expired, was removed or the server restarted. Collect it again on Data, Sampling or Tasks.')
             return deepcopy(entry['data']), {**deepcopy(entry['meta']), 'reused': True}
     key = context_key(payload)
     if not payload.get("refresh") and CURRENT is not None and CURRENT["key"] == key:

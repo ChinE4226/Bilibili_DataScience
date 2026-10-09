@@ -3,12 +3,18 @@
 import argparse
 import asyncio
 import io
+import os
+import tempfile
+import atexit
 from datetime import datetime, timedelta
 from pathlib import Path
 import sys
 from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+preview_data = tempfile.TemporaryDirectory(prefix='bilibili-layout-preview-')
+atexit.register(preview_data.cleanup)
+os.environ['BILIBILI_TRACKING_DB'] = str(Path(preview_data.name) / 'tracking.sqlite3')
 from bilibili_ds.distributions import analyse_dataset
 from bilibili_ds.weekly import summarize_weekly_items
 from bilibili_ds.sampling import parse_sample_options, sample_candidates
@@ -21,6 +27,24 @@ from bilibili_ds.web.server import DashboardHTTPServer
 from bilibili_ds.web.weekly import parse_weekly_source
 from bilibili_ds.web import dataset
 from bilibili_ds.web.actions import execute_video_action
+from bilibili_ds.web import creators, distributed_dataset
+
+
+async def fetch_mission_preview(payload):
+    """Mission integration fixture with distinct targets; never contacts Bilibili."""
+    await asyncio.sleep(.3)
+    creator = creators.selected_creator()
+    selection = payload['selection']
+    count = min(3, selection.get('end', 3) - selection.get('start', 1) + 1)
+    rows = [{'title': f"Creator {creator['uid']} · video {index + 1}",
+             'bvid': f'BV1xx411c{7 if creator["uid"] == "123456" else 8}m{chr(68 + index)}', 'pubdate': 1788307200 + index * 86400,
+             'owner': {'mid': int(creator['uid']), 'name': creator['name']},
+             'stat': {'view': int(creator['uid']) + index * 100, 'like': 10, 'reply': 2, 'favorite': 3, 'coin': 4, 'share': 1}}
+            for index in range(count)]
+    return rows, f'First {count} videos', 500, {'requested': count, 'examined': count, 'skipped_invalid': 0, 'skipped_duplicates': 0}
+
+
+distributed_dataset.fetch_workspace_items = fetch_mission_preview
 
 
 VIDEO = {
@@ -53,7 +77,7 @@ class PreviewHandler(BilibiliDataScienceHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
-        if path.startswith('/api/nodes') or path in {'/api/collections', '/api/dev-version', '/api/workspace-data'}:
+        if path.startswith(('/api/nodes', '/api/missions')) or path in {'/api/collections', '/api/dev-version', '/api/workspace-data'}:
             super().do_GET()
             return
         if path == "/":
@@ -66,7 +90,7 @@ class PreviewHandler(BilibiliDataScienceHandler):
             self.send_bytes(PNG, "image/png")
             return
         fixtures = {
-            "/api/health": {"workspace_restore_version": 1, "chart_export_version": 3, "collection_analysis_version": 1, "account": "Layout preview (sample data)", "selected_creator": CREATOR, "request_frequency": self.request_frequency},
+            "/api/health": {"mission_queue_version": 1, "workspace_restore_version": 1, "chart_export_version": 3, "collection_analysis_version": 1, "account": "Layout preview (sample data)", "selected_creator": CREATOR, "request_frequency": self.request_frequency},
             "/api/creators": {"creators": [CREATOR, {"name": "Another uploader with a longer name", "uid": "987654"}]},
             "/api/accounts": {"accounts": [{"name": "Sample account", "uid": "555555", "id": "sample", "source": "qr", "active": True}]},
             "/api/plots": {"plots": [{"url": "/plots/sample.png", "name": "Sample_views_by_published_time.png", "size": len(PNG)}] if self.saved else []},
@@ -81,7 +105,7 @@ class PreviewHandler(BilibiliDataScienceHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
-        if path.startswith('/api/nodes'):
+        if path.startswith(('/api/nodes', '/api/missions')):
             super().do_POST()
             return
         data = read_json_body(self)

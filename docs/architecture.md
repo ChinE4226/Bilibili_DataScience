@@ -55,7 +55,7 @@ Bilibili_DataScience/
             ui.js           Common formatting and action feedback
             selection.js    Selection form values
             progress.js     Operation progress polling
-            batch.js        Sequential task execution and queue feedback
+            batch.js        Mission builder, server queue and retained results
             dev_reload.js  Source-change refresh and form restoration
             views/          Accounts, creators, videos, and plots
         vendor/             ECharts 5.6.0 and selected Lucide 1.8.0 modules
@@ -127,7 +127,8 @@ Web-specific creator selection rules and result formats live in `web/`.
   `static/js/collections.js` manages per-browser source selection, separate cohort
   filters and requested/checked/eligible/valid/active count summaries. Source changes
   clear stale overview, ratio, chart and unusual-value displays. Creator refresh
-  remains available on Data, while cohort task batches contain processing steps only.
+  remains available on Data. Missions can fetch an independent creator or copy any
+  loaded collection for processing without refetching.
   Collection metadata tracks requested, examined, skipped and shortfall counts.
   `web/videos.py` pages forward from the requested publication position until it
   collects End − Start + 1 unique videos with six valid metrics or runs out of
@@ -212,7 +213,7 @@ Each worker uses a fresh bytecode-cache namespace and disables cache writes.
 and Python. Templates embed initial interface revisions and the process token.
 The standalone `dev_reload.js` module polls revisions even if `app.js` fails to parse.
 It swaps stylesheets after successful loading and refreshes HTML/JS only while idle.
-`performAction` exposes busy state on the document so batch queues are not interrupted.
+`performAction` exposes busy state on the document to coordinate foreground actions.
 Safe control values, active page/source and scroll survive via temporary tab storage;
 passwords, transient pairing codes and dataset rows are never stored there.
 Interface updates retain server RAM state and restore collected tables/reports.
@@ -256,6 +257,68 @@ status in a compact Analysis summary. The Unusual values page derives its table
 from the last generated chart without I/O; a new chart replaces this report.
 Unsaved algorithms and plots remain in memory; only explicit export writes a file.
 
+## Dataset Snapshots and Tracking
+
+The two workflows have separate pages, browser modules, service modules, API
+namespaces and processing algorithms, while sharing one SQLite file. See
+[`tracking-workflow.md`](tracking-workflow.md) for behavior and formulas.
+
+`bilibili_ds/tracking.py` owns transactions and additive schema migrations:
+`tracking_schema.sql` (v1), `tracking_collections.sql` (v2), and
+`tracking_workflow.sql` (v3). Connections enable foreign keys, use WAL with a
+five-second lock timeout, and close after commit/rollback. Initialization uses
+thread and database write locks; unknown versions are rejected. The default is
+`PROJECT_ROOT/data/tracking.sqlite3`, with a `BILIBILI_TRACKING_DB` override.
+
+Dataset snapshots: `web/snapshots.py:capture_collection` copies the selected RAM
+collection, or calls the normal dataset/sample collector for a fresh result.
+Fresh collectors do not retain/evict RAM collections. `snapshot_batches` retains
+scope and collection/save times; `snapshot_batch_items` links ordered immutable
+rows. The whole batch commits atomically. Resaving identical loaded observations
+reuses rows. `/api/snapshots`, `/collection`, `/batch`, `/export`, and `/backup`
+serve `static/js/views/snapshots.js` under Workspace → Data → Dataset snapshots.
+
+Tracking: `web/tracking.py` collects fresh BV metrics and scans creator releases.
+Only `save_observation` enrolls rows in `tracking_samples`; `tracking_observations`,
+`latest_tracking_observations` and `tracking_history` filter to that membership.
+Collection batch writes never enroll rows. Migration v3 classifies existing
+scheduled/tracker-linked observations and legacy single-video observations as
+tracking; batch-only rows remain datasets. The shared raw `snapshots` table and
+its old views remain for compatibility; neither tracking analysis nor its export
+uses unfiltered raw history. No saved records are deleted or duplicated.
+
+`creator_watches` has independent discovery and new-video intervals.
+`creator_seen` records baseline uploads and later detected releases. The first
+successful scan is a baseline, not a release alert. Later unseen uploads published
+after that baseline get trackers in the same transaction as discovery. Existing
+trackers preserve pause/status/interval. `creator_watch_errors` stores sanitized
+failures with backoff. Checks fetch at most ten newest-first pages of 50 rows;
+repeated scans deduplicate by BV ID and inspect whole pages before stopping.
+
+The server-owned `TrackingWorker` selects the earliest due video or creator watch
+and shares the network lock with foreground fetches; it never changes CURRENT,
+COHORTS or dataset progress. Pausing during requests preserves paused schedules.
+Busy locks defer work without errors, failed requests use at least a five-minute
+retry, and missed checks are not backfilled. Main and computer must stay running.
+One main process should own a tracking database.
+
+`tracking_analysis.py` processes chronologically ordered observations of one BV
+and selected metric. It computes signed deltas, actual-time interval rates, growth
+percentages, rate changes, net change, video age and overall elapsed-time averages.
+Missing values break adjacent comparisons. Counter decreases are flagged and
+excluded from rate-change comparisons; raw negative deltas/rates are preserved.
+Window-independent summaries use all observations before display truncation.
+These calculations do not call dataset distribution, ratio or outlier algorithms.
+
+`/api/tracking` reports monitors and releases; `/history` and `/export` expose
+tracking-only observations; `/analysis` runs the time-series algorithm. POST
+`/trackers`, `/update`, `/check`, `/creators`, `/creators/update`, `/creators/check`
+and `/backup` manage the workflow. Legacy `/tracking/snapshot` and collection
+routes remain aliases for compatibility. `static/js/views/tracking.js` lives at
+Workspace → Tracking and displays metric/rate charts and histories. Both pages
+poll only while visible and no foreground action is running. Database files are
+never served as static assets; credentials and raw API responses are not stored.
+
 ## Extending the Project
 
 Put reusable evaluation calculations in a new shared module, with unit tests.
@@ -266,7 +329,7 @@ introducing imports from shared calculations back into the web layer.
 ## Dashboard Organization
 
 Primary navigation groups Explore (Creators library, creator profile and single video), Workspace
-(Data, Analysis, Tasks, Nodes), and Settings. Data groups creator datasets and sampling;
+(Data, Analysis, Tasks, Nodes), and Settings. Data groups creator datasets, sampling and dataset snapshots; Tracking has its own workspace group;
 Analysis groups overview, charts, ratios, unusual values and saved charts. Group and
 subview navigation both preserve state and remain available during ongoing actions.
 `app.js` maps each tool to a section and remembers its last active view in memory.
@@ -285,23 +348,29 @@ the active tool using the main element's `data-active-panel` attribute.
 Quick creator switching uses an anchored dropdown on the Back button row with its own search input.
 The Creators panel handles browsing and adding saved identities. Both lists use
 `views/creators.js`, and selection updates do not reload unrelated sections.
-`app.js` keeps a RAM-only menu history. Blank clicks on bare layout surfaces and
-an explicit Back button pop that history. An open dropdown takes precedence:
-outside clicks dismiss it without navigation. Controls, charts, and results are
-excluded. Page changes retain dataset filters and fetched results.
+`app.js` keeps a RAM-only menu history. The explicit Back button pops that history.
+Outside clicks dismiss open dropdowns. Page changes retain dataset filters and
+fetched results.
 Global action feedback uses a fixed notice so progress and errors do not move
 page content. Clipboard actions disable only their own button, restore keyboard
 focus without scrolling, and keep address buttons intact during node polling.
 
-The Tasks page queues Fetch, Ratios, Statistics and Charts in dependency order.
-`app.js` shares task definitions and result renderers between individual actions
-and `batch.js`. A batch captures the selection, filters and each task's options
-before sending sequential `/api/video-action` requests under one browser action
-guard. Only its fetch step sets `refresh`; later steps keep `reuse_only` enabled.
-Inputs and configuration buttons are disabled while the queue runs. Navigation
-stays available. Failure or a stop request skips subsequent tasks; stopping lets
-the current request complete. The queue lives in the browser's memory and requires
-the tab to remain open. It does not add an endpoint, persistent queue or disk writes.
+The Tasks page builds independent missions through `/api/missions`: add, reorder,
+remove, run/resume, stop and inspect results. `web/missions.py` owns a sequential
+worker and up to 30 missions in server RAM. Each captures its creator, fetch range,
+account identity, local filters and processing settings. A context-local creator
+override isolates fetches from the global selected creator. Fetches retain their
+own dataset in `dataset.MISSION_COLLECTIONS`; loaded inputs are copied at enqueue
+time. This store shares the collection read APIs but is separate from the four-sample
+eviction policy. Each mission holds at most 2,500 rows.
+
+Steps run under `dataset.LOCK`. Analysis, charts and ratios reuse the mission's
+collection; only an explicit snapshot step writes SQLite collection history.
+Results and completed steps are retained. Failure stops later missions; stop waits
+for the current step, and resume skips completed steps. Queue edits are disabled
+during a run. The server worker survives browser navigation and disconnection;
+restarting Python clears unsaved RAM. `batch.js` builds and polls the queue, while
+`app.js` opens retained results through the existing analysis/plot renderers.
 
 Sampling groups Random sample and Weekly popular in local tabs. Random sample
 uses `POST /api/random-sample`; `web/sampling.py` searches video-only candidates

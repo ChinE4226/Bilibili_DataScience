@@ -33,7 +33,7 @@ def parse_weekly_source(value):
     return number
 
 
-async def fetch_weekly_analysis(payload):
+async def fetch_weekly_analysis(payload, *, snapshot_only=False):
     if not dataset.LOCK.acquire(blocking=False):
         raise ValueError("Another video operation is running. Try again when it finishes.")
     configured = False
@@ -75,13 +75,16 @@ async def fetch_weekly_analysis(payload):
                       for item in valid]}
         configured = False
         await client.close_bilibili_client()
-        result['dataset'] = dataset.retain_collection(valid, kind='weekly', label=f"Weekly popular · {result['issue']['name']}",
-            started_at=started, collected_at=result['collected_at'], scope=result['issue'], report=result,
+        metadata = dataset.describe_collection(valid, kind='weekly', label=f"Weekly popular · {result['issue']['name']}",
+            started_at=started, collected_at=result['collected_at'], scope=result['issue'],
             collection={'requested': len(rows), 'examined': len(rows), 'skipped_invalid': summary['counts']['invalid'],
                         'skipped_duplicates': summary['counts']['duplicates'], 'shortfall': len(rows) - len(valid)})
+        if not snapshot_only:
+            result['dataset'] = dataset.retain_collection(valid, kind='weekly', label=metadata['source_label'],
+                started_at=started, collected_at=result['collected_at'], scope=result['issue'], collection=metadata['collection'], report=result)
         set_progress(f"Weekly analysis completed. {len(valid)} valid videos; {summary['counts']['invalid']} invalid and {summary['counts']['duplicates']} duplicate entries skipped.",
                      running=False, percent=100, count=len(valid))
-        return result
+        return (valid, metadata) if snapshot_only else result
     except Exception as exc:
         set_progress(f"Weekly analysis failed: {exc}", running=False)
         raise

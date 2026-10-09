@@ -41,6 +41,15 @@ class WeeklyFetchTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(dataset.CURRENT, self.original)
         self.close.assert_awaited_once()
 
+    async def test_snapshot_only_returns_fresh_rows_without_retaining_them(self):
+        with patch.object(dataset, 'retain_collection') as retain:
+            rows, metadata = await weekly.fetch_weekly_analysis({'source': '393'}, snapshot_only=True)
+        retain.assert_not_called()
+        self.assertEqual(rows, self.response['list'])
+        self.assertEqual(metadata['scope']['number'], 393)
+        self.assertIs(dataset.CURRENT, self.original)
+        self.assertFalse(dataset.LOCK.locked())
+
     async def test_incomplete_list_data_gets_details_once_per_video(self):
         incomplete = {'bvid': 'C', 'title': 'Unavailable', 'stat': {}}
         self.response['list'] += [incomplete, incomplete, {'bvid': 'D', 'stat': {}}]

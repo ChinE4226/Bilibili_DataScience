@@ -1,6 +1,7 @@
 import { getJSON } from './api.js';
 import { uiState } from './state.js';
 import { escapeHTML, performAction, preservePageHeight } from './ui.js';
+import { renderSnapshotChoice } from './snapshot-choice.js';
 
 const el = id => document.getElementById(id);
 let entries = new Map();
@@ -25,7 +26,8 @@ function renderChoices() {
 export function registerCollection(meta) {
   if (!meta?.collection_id) return;
   entries.set(meta.collection_id, meta);
-  while (entries.size > 4) entries.delete(entries.keys().next().value);
+  const samples = [...entries.values()].filter(entry => !entry.mission_id);
+  while (samples.length > 4) entries.delete(samples.shift().collection_id);
   renderChoices();
   renderAnalysisContext();
 }
@@ -42,6 +44,7 @@ export async function refreshCollections() {
     el('dataset-count-flow').hidden = true;
     el('dataset-filter-status').hidden = true;
     el('videos-result').innerHTML = '<p class="empty-state">No dataset loaded for this creator and account.</p>';
+    el('creator-snapshot-choice').innerHTML = '';
     if (!uiState.collectionId) document.dispatchEvent(new Event('analysis-source-changed'));
   }
   renderChoices();
@@ -90,24 +93,26 @@ export function renderAnalysisContext() {
       : `${meta?.selection || ''} · collected on ${meta?.collection?.node_name || 'This Mac'}. Metrics are accumulated counts observed during collection.`;
   for (const id of ['division-numerator', 'division-denominator', 'plot-numerator', 'plot-denominator']) {
     const select = el(id), option = [...select.options].find(option => option.value === 'followers');
-    if (option) option.disabled = cohort;
-    if (cohort && select.value === 'followers') select.value = id.includes('denominator') ? 'views' : 'likes';
+    const sample = ['weekly', 'random'].includes(meta?.source_kind);
+    if (option) option.disabled = sample;
+    if (sample && select.value === 'followers') select.value = id.includes('denominator') ? 'views' : 'likes';
     select.dispatchEvent(new Event('optionschange'));
   }
 }
 
 export function recordDataset(meta) {
-  if (meta.source_kind === 'weekly' || meta.source_kind === 'random') {
+  if (meta.collection_id) {
     uiState.analysisDataset = meta;
   } else {
     const previous = uiState.creatorDataset;
     uiState.creatorDataset = meta;
+    el('creator-snapshot-choice').innerHTML = renderSnapshotChoice(meta);
     if (!uiState.collectionId && previous && previous.collected_at !== meta.collected_at) {
       document.dispatchEvent(new Event('analysis-source-changed'));
     }
     const c = meta.collection;
     const details = c ? ` · ${c.examined} checked · ${c.skipped_invalid} invalid skipped${c.skipped_duplicates ? ` · ${c.skipped_duplicates} duplicates skipped` : ''}${c.requested != null ? ` · ${c.requested} requested` : ''}${c.shortfall ? ` · ${c.shortfall} short` : ''}` : '';
-    el('dataset-status').textContent = `${meta.reused ? 'Reused' : 'Fetched'} ${meta.count} valid videos${details} · fetched on ${c?.node_name || 'This Mac'} · ${meta.source_label || `Creator ${meta.uid || ''}`} · ${meta.selection} · collected ${new Date(meta.started_at).toLocaleString()} – ${new Date(meta.collected_at).toLocaleString()}. In memory only.`;
+    el('dataset-status').textContent = `${meta.reused ? 'Reused' : 'Fetched'} ${meta.count} valid videos${details} · fetched on ${c?.node_name || 'This Mac'} · ${meta.source_label || `Creator ${meta.uid || ''}`} · ${meta.selection} · collected ${new Date(meta.started_at).toLocaleString()} – ${new Date(meta.collected_at).toLocaleString()}. Loaded in RAM.`;
     el('dataset-count-flow').textContent = countsLine(meta);
     el('dataset-count-flow').hidden = false;
     const f = meta.filter_counts;
@@ -126,12 +131,6 @@ export function chooseCollection(identity) {
   el('analysis-max-views').value = '';
   el('analysis-collection').value = identity;
   el('analysis-collection').dispatchEvent(new Event('optionschange'));
-  const fetch = el('batch-fetch');
-  fetch.disabled = Boolean(identity);
-  if (identity) {
-    fetch.checked = false;
-    fetch.dispatchEvent(new Event('change', { bubbles: true }));
-  }
   renderAnalysisContext();
   document.dispatchEvent(new Event('analysis-source-changed'));
 }

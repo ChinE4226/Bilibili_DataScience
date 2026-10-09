@@ -25,6 +25,16 @@ class SampleFetchTests(unittest.IsolatedAsyncioTestCase):
     def payload(self, **extra):
         return {'keyword': 'camera', 'sample_size': 5, 'pool_size': 25, 'seed': 'test', **extra}
 
+    async def test_snapshot_only_returns_fresh_rows_without_retaining_them(self):
+        self.search.return_value = {'result': [{'bvid': '1'}, {'bvid': '2'}]}
+        with patch.object(dataset, 'retain_collection') as retain:
+            rows, metadata = await sampling.fetch_random_sample(self.payload(sample_size=2, pool_size=2), snapshot_only=True)
+        retain.assert_not_called()
+        self.assertEqual({row['bvid'] for row in rows}, {'1', '2'})
+        self.assertEqual(metadata['scope']['seed'], 'test')
+        self.assertIs(dataset.CURRENT, self.original)
+        self.assertFalse(dataset.LOCK.locked())
+
     async def test_collects_whole_pool_and_uses_refreshed_metric_filter(self):
         self.search.side_effect = [{'result': [{'bvid': str(i)} for i in range(20)]},
                                    {'result': [{'bvid': str(i)} for i in range(20, 40)]}]

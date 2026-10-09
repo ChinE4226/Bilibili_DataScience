@@ -581,3 +581,7 @@ cython_debug/
 #.idea/
 
 /docs/coordination/
+
+# Local video history and SQLite journal files.
+/data/*.sqlite3*
+/data/backups/

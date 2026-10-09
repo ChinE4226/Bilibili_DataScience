@@ -17,6 +17,7 @@ let plotPoints = [];
 let dated = false;
 let saved = false;
 let resizeObserver;
+const themeColor = (token, fallback) => getComputedStyle(document.documentElement).getPropertyValue(token).trim() || fallback;
 const maStyles = { 5: { color: "#b47732", type: "solid" }, 10: { color: "#8363a5", type: "dashed" }, 20: { color: "#b55d70", type: "dotted" } };
 let movingAverages = new Map();
 
@@ -266,7 +267,7 @@ function seriesOptions() {
 
 function legendEntries() {
   if (!plotPoints.length || !(overlayEntries().length || hasRelative() || valueMode() !== "raw" || showAnomalies() && anomalyScores.some(score => score != null && Math.abs(score) > 3.5))) return [];
-  return [{ label: valueMode() === "index" ? `Performance index · 100 = median ${formatIndicator(indexBaseline)}` : valueMode() === "log" ? "log10(value + 1) · tooltips show raw values" : snapshot.y_label || "Value", color: "#596b88", type: "solid" },
+  return [{ label: valueMode() === "index" ? `Performance index · 100 = median ${formatIndicator(indexBaseline)}` : valueMode() === "log" ? "log10(value + 1) · tooltips show raw values" : snapshot.y_label || "Value", color: themeColor('--accent', '#596b88'), type: "solid" },
     ...overlayEntries(), ...(showAnomalies() && anomalyScores.some(score => score != null && Math.abs(score) > 3.5) ? [{ label: "Amber diamond · potential outlier (|score| > 3.5)", color: "#b47732", type: "solid" }] : []), ...(hasRelative() ? [{ label: "Relative20 (× prior mean)", color: "#53758c", type: "solid" }] : [])];
 }
 
@@ -494,7 +495,7 @@ export function renderPlot(data) {
   chart.setOption({
     animation: false,
     backgroundColor: "#ffffff",
-    color: ["#596b88"],
+    color: [themeColor('--accent', '#596b88')],
     textStyle: { fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" },
     grid: { left: 12, right: 18, top: 36, bottom: 94, containLabel: true },
     tooltip: {
@@ -524,7 +525,7 @@ export function renderPlot(data) {
       splitLine: { lineStyle: { color: "#e5e8ee" } }
     },
     dataZoom: [
-      { type: "slider", xAxisIndex: 0, bottom: 8, height: 26, start: 0, end: 100, showDetail: false, borderColor: "#cbd3df", fillerColor: "rgba(89,107,136,0.12)", filterMode: "none" },
+      { type: "slider", xAxisIndex: 0, bottom: 8, height: 26, start: 0, end: 100, showDetail: false, borderColor: themeColor('--accent-border', '#bbc5d5'), fillerColor: themeColor('--accent-range', 'rgba(89,107,136,0.12)'), filterMode: "none" },
       { type: "inside", xAxisIndex: 0, filterMode: "none", zoomOnMouseWheel: true, moveOnMouseMove: true }
     ],
     series: allSeries()
