@@ -314,6 +314,8 @@ code {
 
 /* Analysis uses inline charts and never generates image files. */
 .analysis-table { overflow-x: auto; margin: 1rem 0; }
+.table-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .75rem 0; }
+.table-pagination span { flex: 1 1 180px; color: var(--muted); font-size: .875rem; }
 .analysis-charts { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
 .analysis-charts figure { margin: 0; min-width: 0; padding: 1rem; border: 1px solid #d8dce3; border-radius: 8px; }
 .analysis-charts figcaption { font-weight: 600; margin-bottom: .5rem; }

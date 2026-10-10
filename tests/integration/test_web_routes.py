@@ -86,6 +86,18 @@ class WebRouteTests(unittest.TestCase):
             self.assertIsNone(dataset.CURRENT)
             self.assertEqual(self.request('/api/collections/release', {})[0], 400)
 
+    def test_tracking_revision_route_changes_after_writes_and_is_stable_after_reads(self):
+        status, _, body = self.request('/api/tracking/revision')
+        self.assertEqual(status, 200)
+        initial = json.loads(body)
+        self.assertEqual(set(initial), {'revision'})
+        self.assertEqual(json.loads(self.request('/api/tracking/revision')[2]), initial)
+        self.request('/api/tracking/trackers', {'video': 'BV1xx411c7mD', 'interval_seconds': 600})
+        updated = json.loads(self.request('/api/tracking/revision')[2])
+        self.assertNotEqual(updated, initial)
+        self.assertEqual(json.loads(self.request('/api/tracking')[2])['revision'], updated['revision'])
+        self.assertEqual(json.loads(self.request('/api/tracking/revision')[2]), updated)
+
     def test_memory_route_reports_process_usage_without_returning_dataset_rows(self):
         with patch.object(dataset, 'CURRENT', None):
             status, _, body = self.request('/api/memory')

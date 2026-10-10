@@ -3,6 +3,7 @@ import { escapeHTML, table } from "../ui.js";
 import { startProgressPolling, stopProgressPolling } from "../progress.js";
 import { registerCollection } from '../collections.js';
 import { renderSnapshotChoice } from '../snapshot-choice.js';
+import { renderPaginatedTable } from '../pagination.js';
 
 const number = value => value == null ? "—" : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 const percent = value => value == null ? "—" : `${(value * 100).toLocaleString(undefined, { maximumFractionDigits: 4 })}%`;
@@ -17,9 +18,20 @@ export function cohortTables(data) {
     <p class="muted">Mean per video gives each eligible video equal weight. Pooled = total interactions / total views. Zero-view videos are excluded from these ratios.</p>
     ${scrollTable(["Interaction", "Eligible videos", "Excluded", "Mean per video", "Median per video", "Pooled"], data.engagement.map(row => [row.label, row.count, row.excluded, percent(row.mean_per_video), percent(row.median_per_video), percent(row.pooled)]))}
     <details><summary>Included videos (${counts.included})</summary>
-      ${scrollTable(["Title", "Creator", "Published", "Views", "Likes", "Replies", "Favorites", "Coins", "Shares", "BVID"], data.videos.map(video => [video.title, video.creator, video.published_time, video.views, video.likes, video.replies, video.favorites, video.coins, video.shares, video.bvid]))}
+      <div data-cohort-videos></div>
     </details>
-    ${data.excluded.length ? `<details><summary>Skipped entries (${data.excluded.length})</summary>${scrollTable(["Title", "BVID", "Reason"], data.excluded.map(row => [row.title, row.bvid, row.reason]))}</details>` : ""}`;
+    ${data.excluded.length ? `<details><summary>Skipped entries (${data.excluded.length})</summary><div data-cohort-excluded></div></details>` : ""}`;
+}
+
+export function mountCohortTables(target, data) {
+  const element = typeof target === 'string' ? document.getElementById(target) : target;
+  renderPaginatedTable(element.querySelector('[data-cohort-videos]'),
+    ['Title', 'Creator', 'Published', 'Views', 'Likes', 'Replies', 'Favorites', 'Coins', 'Shares', 'BVID'],
+    data.videos, video => [video.title, video.creator, video.published_time, video.views, video.likes, video.replies, video.favorites, video.coins, video.shares, video.bvid],
+    { lazy: true, label: 'Included videos' });
+  if (data.excluded.length) renderPaginatedTable(element.querySelector('[data-cohort-excluded]'),
+    ['Title', 'BVID', 'Reason'], data.excluded, row => [row.title, row.bvid, row.reason],
+    { lazy: true, label: 'Skipped entries' });
 }
 
 export function renderWeekly(data) {
@@ -37,6 +49,7 @@ export function renderWeekly(data) {
     ${data.dataset ? `<div class="actions"><button type="button" class="primary" data-use-collection="${escapeHTML(data.dataset.collection_id)}">Use in Analysis</button></div>` : ''}
     ${cohortTables(data)}
     <p class="muted">This selected popular cohort describes the issue's videos. It is not an average across all Bilibili videos. Use in Analysis opens charts, ratios and unusual values on these collected rows. The creator dataset stays available.</p>`;
+  mountCohortTables('weekly-result', data);
 }
 
 export async function fetchWeekly() {

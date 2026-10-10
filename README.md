@@ -284,6 +284,10 @@ across missing data or counter decreases. Rates are averages over each observed
 interval, not instantaneous activity. No missing points are estimated/backfilled.
 
 The browser can be closed, but the main app and computer must remain running.
+While Tracking is visible, its five-second refresh checks a small database revision
+counter first. Tables and selected history update only after data changes; manual
+Refresh still reloads them. Restart the main app after this update to enable the
+revision endpoint. Existing history migrates automatically without deletion.
 Active watches resume after restart; overdue work gets one check rather than
 inventing missed observations. Collection shares the network lock with foreground
 operations. Failed video and creator checks are recorded separately and retry no
@@ -507,6 +511,10 @@ Zero denominators can still prevent ratio plots even when all metrics are presen
 
 Local minimum/maximum view filters are inclusive and run without network requests.
 They only narrow the fetched selection; clear both to include every fetched row.
+Creator dataset and sampling video tables show 50 rows per page. Previous/Next
+changes only the displayed rows; analysis, chart calculations and snapshot saves
+still use the whole selected collection. Included/skipped sampling lists are
+rendered when expanded, and switching pages requires no network requests.
 In Statistics, **Chart metric** updates the selected metric's summary, histogram,
 box plot, and unusual values locally. Run **Analyze Dataset** first to enable it.
 The all-metrics comparison remains available in a separate expandable table.
@@ -579,6 +587,8 @@ Run `node tests/browser/navigation.cjs` to check that switching pages, Sampling
 tabs and Back navigation preserve scroll position on desktop and mobile.
 Run the analysis browser checks with `node tests/browser/analysis.cjs`. They verify
 local chart changes, filter payloads, and desktop/mobile layout using sample data.
+Run `node tests/browser/performance.cjs` for 50-row pagination, lazy video lists,
+whole-collection analysis, keyboard focus and tracking revision checks.
 Run `node tests/browser/batch.cjs` for multiple creator missions, retained datasets,
 explicit saves, results, reload recovery and responsive Tasks layout. Python mission
 integration tests also cover failure handling and stop/resume behavior.

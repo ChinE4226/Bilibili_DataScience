@@ -1,7 +1,7 @@
 import { getJSON, postJSON } from '../api.js';
 import { bindAction, performAction, escapeHTML, table, preservePageHeight } from '../ui.js';
 import { uiState } from '../state.js';
-import { cohortTables } from './weekly.js';
+import { cohortTables, mountCohortTables } from './weekly.js';
 
 const el = id => document.getElementById(id);
 let snapshot, shownTask;
@@ -92,6 +92,7 @@ async function showResult(id) {
     <p class="muted">Collected ${escapeHTML(new Date(data.started_at).toLocaleString())} – ${escapeHTML(new Date(data.collected_at).toLocaleString())}. Nodes: ${escapeHTML(data.nodes.join(', ') || 'Waiting for results')}.</p>
     ${data.task.error ? `<p class="error-message">${escapeHTML(data.task.error)}</p>` : ''}
     ${cohortTables(data)}<p class="muted">These averages describe the received videos and their current accumulated metrics. Partial results are retained if a task fails or is canceled. The creator working dataset is kept separately. Reopen View results to see the latest completed work units.</p>`;
+  mountCohortTables('nodes-result', data);
 }
 
 export function setupNodes() {

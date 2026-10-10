@@ -1,7 +1,7 @@
 import { postJSON } from "../api.js";
 import { escapeHTML, preservePageHeight } from "../ui.js";
 import { startProgressPolling, stopProgressPolling } from "../progress.js";
-import { cohortTables } from "./weekly.js";
+import { cohortTables, mountCohortTables } from "./weekly.js";
 import { registerCollection } from '../collections.js';
 import { renderSnapshotChoice } from '../snapshot-choice.js';
 
@@ -54,6 +54,7 @@ export function renderRandomSample(data) {
     ${data.dataset ? `<div class="actions"><button type="button" class="primary" data-use-collection="${escapeHTML(data.dataset.collection_id)}">Use in Analysis</button></div>` : ''}
     ${cohortTables(data)}
     <p class="muted">Averages describe the sampled videos from this search pool. Each eligible candidate has the same chance of selection, without replacement. Use in Analysis reuses this sample for charts and ratios. The creator dataset stays available. Collections stay in RAM; the newest four sampling collections are retained.</p>`;
+  mountCohortTables('sample-result', data);
 }
 
 export async function fetchRandomSample() {

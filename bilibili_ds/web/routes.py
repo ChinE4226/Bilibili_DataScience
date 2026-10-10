@@ -101,7 +101,7 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
                     "chart_export_version": 3,
                     "collection_analysis_version": 1,
                     "workspace_restore_version": 1,
-                    "tracking_version": 2,
+                    "tracking_version": 3,
                     "collection_snapshot_version": 1,
                     "dataset_snapshot_version": 1,
                     "mission_queue_version": 1,
@@ -112,12 +112,14 @@ class BilibiliDataScienceHandler(BaseHTTPRequestHandler):
                 }
             )
             return
-        if path in {"/api/snapshots", "/api/snapshots/batch", "/api/snapshots/export", "/api/tracking", "/api/tracking/analysis", "/api/tracking/history", "/api/tracking/export", "/api/tracking/batch", "/api/tracking/batch-export"}:
+        if path in {"/api/snapshots", "/api/snapshots/batch", "/api/snapshots/export", "/api/tracking", "/api/tracking/revision", "/api/tracking/analysis", "/api/tracking/history", "/api/tracking/export", "/api/tracking/batch", "/api/tracking/batch-export"}:
             try:
                 if path == '/api/snapshots':
                     self.send_json(tracking.snapshot_overview())
                 elif path == "/api/tracking":
                     self.send_json(tracking.overview())
+                elif path == '/api/tracking/revision':
+                    self.send_json(tracking.revision())
                 elif path == '/api/tracking/analysis':
                     query = parse_qs(parsed.query)
                     self.send_json(tracking.analyse_history(extract_bvid(query.get('bvid', [''])[0]), query.get('metric', ['views'])[0], limit=int(query.get('limit', ['500'])[0])))

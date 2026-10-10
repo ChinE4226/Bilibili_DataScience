@@ -61,6 +61,48 @@ class TrackingTests(unittest.TestCase):
         with tracking.connection() as db:
             self.assertEqual(db.execute('SELECT views FROM latest_snapshots').fetchone()[0], 160)
 
+    def test_revision_changes_on_commits_including_external_edits_but_not_reads_or_rollbacks(self):
+        initial = tracking.revision()
+        self.assertEqual(tracking.revision(), initial)
+        tracker = tracking.create_tracker(BVID, now=TIME)
+        created = tracking.revision()
+        self.assertNotEqual(created, initial)
+        self.assertEqual(tracking.overview()['revision'], created['revision'])
+        self.assertEqual(tracking.revision(), created)
+        with self.assertRaises(RuntimeError), tracking.connection() as db:
+            db.execute("UPDATE trackers SET status = 'paused', next_check_at = NULL WHERE id = ?", (tracker['id'],))
+            raise RuntimeError('Rollback this change')
+        self.assertEqual(tracking.revision(), created)
+        with closing(sqlite3.connect(self.path)) as db:
+            db.execute("UPDATE trackers SET status = 'paused', next_check_at = NULL WHERE id = ?", (tracker['id'],))
+            db.commit()
+        paused = tracking.revision()
+        self.assertNotEqual(paused, created)
+        tracking.save_observation(info(), collected_at=TIME)
+        observed = tracking.revision()
+        self.assertNotEqual(observed, paused)
+        tracking.record_error(BVID, 'Offline', attempted_at=TIME)
+        self.assertNotEqual(tracking.revision(), observed)
+
+    def test_v3_revision_migration_preserves_history_and_uses_only_metadata_for_polling(self):
+        tracking.save_observation(info(), collected_at=TIME)
+        before = tracking.history(BVID)
+        with tracking.connection() as db:
+            triggers = db.execute("SELECT name FROM sqlite_master WHERE type = 'trigger'").fetchall()
+            for trigger in triggers:
+                db.execute(f'DROP TRIGGER {trigger[0]}')
+            db.execute('DROP TABLE tracking_revision')
+            db.execute('PRAGMA user_version = 3')
+        tracking.initialize()
+        self.assertEqual(tracking.history(BVID), before)
+        queries = []
+        with tracking.connection() as db:
+            db.set_trace_callback(queries.append)
+            revision = tracking._revision(db)
+        self.assertEqual(revision, tracking.revision()['revision'])
+        self.assertEqual(len(queries), 1)
+        self.assertIn('FROM tracking_revision', queries[0])
+
     def test_zero_missing_and_decreasing_counts_are_preserved(self):
         tracking.save_snapshot(info(100), collected_at=TIME)
         response = info(0)

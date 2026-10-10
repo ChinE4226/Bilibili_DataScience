@@ -1,7 +1,8 @@
 import { metricFields } from "../constants.js";
 import { postJSON } from "../api.js";
-import { escapeHTML, formatValue, table } from "../ui.js";
+import { escapeHTML, formatValue } from "../ui.js";
 import { startProgressPolling, stopProgressPolling } from "../progress.js";
+import { renderPaginatedTable } from '../pagination.js';
 
 export function renderSingleVideo(video) {
   const result = document.getElementById("single-video-result");
@@ -36,9 +37,9 @@ export function renderSingleVideo(video) {
 }
 
 export function renderVideos(target, videos) {
-  document.getElementById(target).innerHTML = table(
+  renderPaginatedTable(target,
     ["Title", "Published", "Views", "Likes", "Replies", "Favorites", "Coins", "Shares", "BVID"],
-    videos.map((item) => [item.title, item.published_time, item.views, item.likes, item.replies, item.favorites, item.coins, item.shares, item.bvid])
+    videos, item => [item.title, item.published_time, item.views, item.likes, item.replies, item.favorites, item.coins, item.shares, item.bvid]
   );
 }
 

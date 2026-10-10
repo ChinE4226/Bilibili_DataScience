@@ -264,8 +264,13 @@ namespaces and processing algorithms, while sharing one SQLite file. See
 [`tracking-workflow.md`](tracking-workflow.md) for behavior and formulas.
 
 `bilibili_ds/tracking.py` owns transactions and additive schema migrations:
-`tracking_schema.sql` (v1), `tracking_collections.sql` (v2), and
-`tracking_workflow.sql` (v3). Connections enable foreign keys, use WAL with a
+`tracking_schema.sql` (v1), `tracking_collections.sql` (v2),
+`tracking_workflow.sql` (v3), and `tracking_revision.sql` (v4). The revision table
+stores a database identity and counter. Triggers increment it transactionally for
+tracking-related writes, including edits from another SQLite client; rollbacks do
+not invalidate the page. `/api/tracking/revision` reads that single row, so idle
+polls skip overview queries, full history analysis and DOM replacement.
+Connections enable foreign keys, use WAL with a
 five-second lock timeout, and close after commit/rollback. Initialization uses
 thread and database write locks; unknown versions are rejected. The default is
 `PROJECT_ROOT/data/tracking.sqlite3`, with a `BILIBILI_TRACKING_DB` override.

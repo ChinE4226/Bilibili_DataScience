@@ -12,12 +12,13 @@ from threading import RLock
 
 from bilibili_ds import config
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 METRICS = {'views': 'view', 'likes': 'like', 'coins': 'coin', 'favorites': 'favorite',
            'replies': 'reply', 'shares': 'share', 'danmaku': 'danmaku'}
 SCHEMA_FILE = Path(__file__).with_name('tracking_schema.sql')
 COLLECTIONS_SCHEMA_FILE = Path(__file__).with_name('tracking_collections.sql')
 WORKFLOW_SCHEMA_FILE = Path(__file__).with_name('tracking_workflow.sql')
+REVISION_SCHEMA_FILE = Path(__file__).with_name('tracking_revision.sql')
 SCHEMA_LOCK = RLock()
 
 
@@ -64,16 +65,17 @@ def connection(path=None):
         db.execute('PRAGMA foreign_keys = ON')
         with SCHEMA_LOCK:
             version = db.execute('PRAGMA user_version').fetchone()[0]
-            if version not in (0, 1, 2, SCHEMA_VERSION):
+            if version not in (0, 1, 2, 3, SCHEMA_VERSION):
                 raise ValueError(f'Unsupported tracking database version: {version}.')
             if version < SCHEMA_VERSION:
                 db.execute('PRAGMA journal_mode = WAL')
                 # Recheck under a database write lock, including across processes.
                 db.execute('BEGIN IMMEDIATE')
                 version = db.execute('PRAGMA user_version').fetchone()[0]
-                if version not in (0, 1, 2, SCHEMA_VERSION):
+                if version not in (0, 1, 2, 3, SCHEMA_VERSION):
                     raise ValueError(f'Unsupported tracking database version: {version}.')
-                migrations = [(1, SCHEMA_FILE), (2, COLLECTIONS_SCHEMA_FILE), (3, WORKFLOW_SCHEMA_FILE)]
+                migrations = [(1, SCHEMA_FILE), (2, COLLECTIONS_SCHEMA_FILE), (3, WORKFLOW_SCHEMA_FILE),
+                              (4, REVISION_SCHEMA_FILE)]
                 for next_version, schema_file in migrations:
                     if version >= next_version:
                         continue
@@ -256,8 +258,21 @@ def record_error(bvid, message, *, source='manual', tracker_id=None, attempted_a
         _finish_check(db, tracker_id, bvid, timestamp, message)
 
 
+def _revision(db):
+    row = db.execute('SELECT identity, revision FROM tracking_revision WHERE id = 1').fetchone()
+    return f"{row['identity']}:{row['revision']}"
+
+
+def revision():
+    """Read one metadata row; no history scans or retained database connection."""
+    with connection() as db:
+        return {'revision': _revision(db)}
+
+
 def overview():
     with connection() as db:
+        # Read before the overview so a concurrent commit is noticed next poll.
+        revision = _revision(db)
         counts = {name: db.execute(f'SELECT COUNT(*) FROM {name}').fetchone()[0]
                   for name in ('videos', 'trackers', 'snapshots', 'collection_errors', 'snapshot_batches')}
         counts['snapshots'] = counts['observations'] = db.execute('SELECT COUNT(*) FROM tracking_observations').fetchone()[0]
@@ -269,7 +284,7 @@ def overview():
             ORDER BY trackers.id DESC''')]
         videos = [dict(row) for row in db.execute('''SELECT t.* FROM latest_tracking_observations t
             ORDER BY collected_at DESC LIMIT 200''')]
-        return {'path': str(config.TRACKING_DB.resolve()), 'schema_version': SCHEMA_VERSION,
+        return {'path': str(config.TRACKING_DB.resolve()), 'schema_version': SCHEMA_VERSION, 'revision': revision,
                 'counts': counts, 'trackers': trackers, 'videos': videos,
                 'creator_watches': [dict(row) for row in db.execute('SELECT * FROM creator_watches ORDER BY id DESC')],
                 'releases': [dict(row) for row in db.execute('''SELECT s.*, w.label, w.uid FROM creator_seen s

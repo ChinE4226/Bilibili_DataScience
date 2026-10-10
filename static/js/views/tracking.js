@@ -3,6 +3,7 @@ import { bindAction, escapeHTML, performAction, table } from '../ui.js';
 
 let enabled = false, loading = false, selectedBvid = null, analysis = null;
 let analysisRequest = 0;
+let revisionSupported = false, lastRevision = null;
 const dateFormat = new Intl.DateTimeFormat('en-GB', {timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
 const date = value => value ? dateFormat.format(new Date(value)) : null;
 const feedback = message => { document.getElementById('tracking-feedback').textContent = message; };
@@ -16,6 +17,8 @@ const minutes = id => {
 
 export function configureTracking(version) {
   enabled = version >= 2;
+  revisionSupported = version >= 3;
+  lastRevision = null;
   for (const id of ['tracking-start', 'tracking-watch-creator', 'tracking-show-history', 'tracking-refresh', 'tracking-backup'])
     document.getElementById(id).disabled = !enabled;
   if (!enabled) feedback('Restart the main app to enable the separate tracking workflow.');
@@ -80,11 +83,19 @@ async function showHistory(value, { reveal = false } = {}) {
     document.getElementById('tracking-history-title').scrollIntoView({behavior:'smooth',block:'start'});
 }
 
-export async function refreshTracking() {
+export async function refreshTracking({ force = true } = {}) {
   if (!enabled || loading) return;
   loading = true;
   try {
+    if (!force && revisionSupported) {
+      const status = await getJSON('/api/tracking/revision');
+      if (status.revision === lastRevision) return;
+    }
     const data = await getJSON('/api/tracking');
+    const revision = data.revision ?? JSON.stringify(data);
+    if (!force && revision === lastRevision) return;
+    const focused = document.activeElement;
+    const focusKey = focused?.matches('#panel-tracking button') ? { ...focused.dataset } : null;
     document.getElementById('tracking-database-path').textContent = data.path;
     document.getElementById('tracking-summary').textContent = `${count(data.counts.trackers, 'video tracker')} · ${count(data.counts.creator_watches, 'creator watch', 'creator watches')} · ${count(data.counts.observations, 'tracking observation')}`;
     document.getElementById('tracking-saved-videos').innerHTML = data.videos.map(row => `<option value="${escapeHTML(row.bvid)}">${escapeHTML(row.title || row.bvid)}</option>`).join('');
@@ -101,6 +112,12 @@ export async function refreshTracking() {
     document.getElementById('tracking-videos').innerHTML = table(['Video', 'BVID', 'Creator', 'Views', 'Latest observation · Beijing', 'Action'],
       data.videos.map(row => [row.title, row.bvid, row.creator_name, row.views, date(row.collected_at), `<button data-history-bvid="${escapeHTML(row.bvid)}">Analyze</button>`]), true);
     if (selectedBvid) await showHistory(selectedBvid);
+    lastRevision = revision;
+    if (focusKey && !focused.isConnected && Object.keys(focusKey).length) {
+      [...document.querySelectorAll('#panel-tracking button')]
+        .find(button => Object.entries(focusKey).every(([key, value]) => button.dataset[key] === value))
+        ?.focus({ preventScroll: true });
+    }
   } finally { loading = false; }
 }
 
@@ -144,6 +161,6 @@ export function setupTracking() {
     });
   });
   setInterval(() => {
-    if (document.querySelector('main').dataset.activePanel === 'tracking' && !document.hidden && document.documentElement.dataset.actionBusy !== 'true') refreshTracking().catch(error => feedback(error.message));
+    if (document.querySelector('main').dataset.activePanel === 'tracking' && !document.hidden && document.documentElement.dataset.actionBusy !== 'true') refreshTracking({ force: false }).catch(error => feedback(error.message));
   }, 5000);
 }
